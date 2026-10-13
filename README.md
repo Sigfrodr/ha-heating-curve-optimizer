@@ -1,13 +1,18 @@
 # Optimiseur de courbe de chauffe Viessmann (intégration Home Assistant)
 
+*[English version](README.en.md)*
+
 Ajuste automatiquement la **pente** et le **décalage** de la courbe de chauffe d'une
 chaudière Viessmann connectée via ViCare, pour que les pièces atteignent leur consigne avec la
 température de départ la plus basse possible (meilleure condensation, cycles brûleur plus longs).
+Pilote aussi la consigne selon un planning et la demande des pièces, suit les coûts, et surveille la chaudière.
+
+![Onglet Courbe](docs/screenshots/fr-curve.png)
 
 ## Principe
 
 1. Toutes les 10 min, l'intégration enregistre T° extérieure, T° ambiante et consigne, **uniquement**
-   en régime stable : programme surveillé actif depuis ≥ 2 h, chauffage actif, T° ext. < 16 °C,
+   en régime stable : programme surveillé actif depuis ≥ 2 h, chauffage actif, T° ext. sous le seuil de chauffe,
    et pas de grand soleil (filtre solaire : hauteur du soleil + couverture nuageuse de la météo).
    Si ViCare ne renvoie pas la consigne courante, elle est lue sur l'entité `number` du programme
    actif (`comfortEnergySaving` → température de confort, etc.).
@@ -23,6 +28,13 @@ température de départ la plus basse possible (meilleure condensation, cycles b
    bornes min/max, tolérance de 0,3 K, écrêtage des écarts aberrants.
 5. Après un ajustement, les mesures sont remises à zéro (elles décrivaient l'ancienne courbe).
 
+Les propositions arrivent en notification ; avec l'appli mobile Home Assistant (service `notify.mobile_app_…`),
+elles portent des boutons **Appliquer** / **Ignorer**.
+
+**Courbe calculée** : un modèle physique de radiateur (émission ∝ ΔT^1,3) est ajusté sur les mesures, puis la
+courbe Viessmann la plus proche est proposée. Elle extrapole correctement aux grands froids même si les mesures
+ne couvrent qu'une petite plage de températures, et permet de converger en quelques jours.
+
 ## Pilotage de la consigne (désactivé / simulation / actif)
 
 ViCare ne permet ni de modifier le planning de la chaudière ni de forcer un programme : le pilote agit
@@ -30,6 +42,8 @@ sur la **consigne du programme actif**, comme l'appli ViCare. Il applique :
 
 - un **planning hebdomadaire** édité dans le panneau (grille par pas de 30 min), importable depuis les
   plannings des têtes thermostatiques ;
+- les **consignes de chaque pièce** (confort / réduit) qui suivent ce même planning, pour les pièces cochées
+  (Better Thermostat) : un seul planning pour toute la maison ;
 - la **veille sur demande** : en période confort, consigne de veille (15 °C par défaut) quand aucune pièce
   ne demande de chaleur depuis 20 min, retour immédiat dès qu'une pièce réclame ;
 - la **relance optimale** : vitesse de remontée apprise sur les relances passées, corrigée par la
@@ -37,71 +51,95 @@ sur la **consigne du programme actif**, comme l'appli ViCare. Il applique :
 - l'**anticipation solaire** : consigne baissée d'1 °C quand un soleil franc est prévu.
 
 En **simulation**, le pilote calcule et affiche ses décisions sans rien écrire. En **actif**, les consignes
-d'origine des programmes sont mémorisées et remises au retour en simulation / désactivé.
-Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus.
+d'origine (chaudière et pièces) sont mémorisées et remises au retour en simulation / désactivé.
+Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus pour la chaudière.
+
+![Onglet Planning](docs/screenshots/fr-planning.png)
+
+## Surveillance et diagnostic
+
+- **Alertes** (entité `binary_sensor` + notification) : pression basse, chaudière injoignable, antigel,
+  cycles courts, **surconsommation** (gaz de la veille nettement au-dessus de la prévision du bilan thermique),
+  **baisse lente de pression** (tendance sur 4 semaines : petite fuite, vase d'expansion),
+  **entretien annuel** à prévoir (bouton « Entretien effectué »).
+- **Bilan thermique** : déperditions de la maison en W/K par saison de chauffe, et **seuil de chauffe**
+  (T° extérieure au-dessus de laquelle les apports gratuits suffisent), applicable en un clic.
+- **Équilibrage des radiateurs** à partir de la puissance de chauffe apprise par Better Thermostat.
+- **Bilan hebdomadaire** par notification.
+
+![Onglet Diagnostic](docs/screenshots/fr-diag.png)
+
+## Coûts et tableau Énergie
+
+Le prix du kWh de gaz et la conversion m³ → kWh (facture) se règlent dans les options. L'intégration fournit :
+
+- `sensor.…_prix_du_gaz` (EUR/m³) : à choisir comme **entité de prix** des sources gaz du tableau Énergie
+  (sources = consommations de gaz ViCare du jour) ;
+- `sensor.…_cout_du_gaz_chauffage_aujourd_hui` et `…_eau_chaude_aujourd_hui` (EUR, remis à zéro chaque jour).
 
 ## Panneau « Courbe de chauffe »
 
-Panneau dans la barre latérale (administrateurs), avec bandeau d'alerte et sept onglets :
+Panneau dans la barre latérale (administrateurs), en français ou en anglais selon la langue de Home Assistant :
 
 | Onglet | Contenu |
 |---|---|
-| **Courbe** | Courbe actuelle + proposition / réglage en cours, zone de condensation (départ < 55 °C), départ mesuré, réglage manuel avec aperçu, écarts par T° extérieure, historique |
-| **Planning** | Mode de pilotage, consigne calculée et raison, grille hebdomadaire, import depuis les têtes, frise des décisions sur 48 h |
+| **Courbe** | Courbe actuelle + proposition / réglage en cours / courbe calculée, zone de condensation, départ mesuré, réglage manuel avec aperçu, écarts par T° extérieure, historique |
+| **Planning** | Mode de pilotage, consigne calculée et raison, grille hebdomadaire, import depuis les têtes, consignes des pièces, frise des décisions sur 48 h |
 | **Pièces** | Ambiance / consigne / demande de chaleur de chaque pièce suivie, part du temps où chaque pièce est limitante |
-| **Économies** | Gaz de chauffage par degré-jour (base 18 °C) sur 60 jours, coût en €, économie estimée depuis le dernier ajustement ; analyse des relances du matin après réduit |
-| **Chaudière** | Démarrages et durée de cycle du brûleur, part du temps en condensation (7 j), pression d'eau, démarrages par jour |
+| **Économies** | Gaz par degré-jour (base 18 °C) sur 60 jours, coût en €, économie estimée ; analyse des relances du matin |
+| **Chaudière** | Démarrages et cycles du brûleur, part du temps en condensation, pression et sa tendance, entretien annuel |
 | **Eau chaude** | Consigne, ballon, part du gaz, recommandation 50 °C, montée anti-légionelle hebdomadaire |
-| **Diagnostic** | Déperditions de la maison (W/K) par saison de chauffe, équilibrage des radiateurs (puissance apprise par Better Thermostat), aperçu et envoi du bilan hebdomadaire |
+| **Diagnostic** | Déperditions (W/K) et seuil de chauffe par saison, jours de surconsommation, équilibrage des radiateurs, bilan hebdomadaire |
 
-**Carte de tableau de bord** : ajouter une carte « Courbe de chauffe » (type `custom:heating-curve-card`) pour
-l'état, l'écart, le pilotage, les alertes, et les boutons Évaluer / Ajustement auto.
-
-API websocket : `heating_curve_optimizer/get`, `/set_curve`, `/recoveries`, `/set_control_mode`,
-`/set_schedule`, `/diagnostics`, `/weekly_report`.
-L'icône est fournie localement dans `brand/` (HA ≥ 2026.3), générée par `tools/make_icon.py`.
+**Carte de tableau de bord** : carte « Courbe de chauffe » (type `custom:heating-curve-card`) avec l'état, l'écart,
+le pilotage, les alertes, et les boutons Évaluer / Ajustement auto.
 
 ## Entités créées
 
 | Entité | Rôle |
 |---|---|
 | `switch.…_ajustement_automatique` | **Éteint = simulation** (propositions en notification). Allumé = applique les ajustements. |
+| `select.…_pilotage_de_la_consigne` | Désactivé / Simulation / Actif |
 | `switch.…_montee_anti_legionelle_hebdomadaire` | Monte l'eau chaude à 60 °C une fois par semaine puis remet la consigne |
 | `button.…_evaluer_maintenant` | Évaluation immédiate |
-| `binary_sensor.…_alerte_chaudiere` | Pression basse, chaudière injoignable, antigel, cycles courts (avec notification) |
+| `button.…_entretien_effectue` | Enregistre l'entretien annuel (date + heures brûleur) |
+| `binary_sensor.…_alerte_chaudiere` | Problèmes en cours (liste en attribut) |
 | `sensor.…_etat` | État (collecte, en attente, proposition…) + dernière proposition en attributs |
-| `sensor.…_ecart_moyen_ambiance_consigne` | Écart moyen retenu sur les mesures en cours |
-| `sensor.…_echantillons` | Nombre de mesures collectées |
-| `sensor.…_demarrages_bruleur_24_h` | Démarrages du brûleur sur 24 h |
-| `sensor.…_duree_moyenne_de_cycle_bruleur_24_h` | Minutes de flamme par démarrage sur 24 h |
-| `select.…_pilotage_de_la_consigne` | Désactivé / Simulation / Actif |
 | `sensor.…_consigne_pilotee` | Consigne calculée par le pilote (mode et raison en attributs) |
+| `sensor.…_ecart_moyen_ambiance_consigne`, `…_echantillons` | Mesures en cours |
+| `sensor.…_demarrages_bruleur_24_h`, `…_duree_moyenne_de_cycle_bruleur_24_h` | Suivi du brûleur |
+| `sensor.…_prix_du_gaz`, `…_cout_du_gaz_…_aujourd_hui` | Tableau Énergie |
 
 Réglages : Paramètres › Appareils et services › Optimiseur de courbe de chauffe › Configurer
 (sections Pièces et météo, Pilotage, Coûts et rapport hebdomadaire, Alertes, Eau chaude, Algorithme).
-Renseigner le **prix du kWh de gaz** et la conversion m³ → kWh de la facture pour des coûts justes.
 
 ## Installation / mise à jour
 
 - **HACS** (dépôt personnalisé, catégorie Intégration) : le dépôt contient `hacs.json`.
 - **Manuel** : copier `custom_components/heating_curve_optimizer/` dans `/config/custom_components/`,
-  puis redémarrer Home Assistant. Un changement limité au panneau (`frontend/`) ne demande qu'un rechargement de la page.
+  puis redémarrer Home Assistant.
+
+Prérequis : Home Assistant 2026.3 ou plus récent, intégration ViCare.
 
 ## Points d'attention
 
 - **Robinets thermostatiques** de la pièce de la sonde chaudière : les ouvrir à fond.
 - ViCare écrit pente et décalage dans le même appel en relisant l'autre valeur dans son cache :
   quand les deux changent, la pente est écrite, puis le décalage une fois la nouvelle pente relue.
+- Pièces pilotées : désactiver leurs autres plannings (têtes, Scheduler) pour éviter qu'ils se contredisent.
 - La durée de cycle est approximative : ViCare compte les heures brûleur en heures entières.
 - La condensation est estimée sur la température de **départ** (pas de sonde de retour).
 
-## Tests
+## Développement
 
 ```bash
 # Tests unitaires (n'importe quel Python 3.12+)
 python -m pytest tests
 # Tests unitaires + intégration Home Assistant (Linux ou WSL : le harnais HA exige Linux)
 bash tools/ha-tests.sh
+# Captures d'écran du README (données fictives, tools/demo) : servir le dépôt puis lancer
+python -m http.server 8765 --bind 127.0.0.1
+pwsh tools/screenshots.ps1
 ```
 
 ## Licence

@@ -1,0 +1,129 @@
+# Viessmann heating curve optimizer (Home Assistant integration)
+
+*[Version française](README.md)*
+
+Automatically tunes the **slope** and **shift** of the heating curve of a Viessmann boiler connected
+through ViCare, so that rooms reach their setpoint with the lowest possible flow temperature
+(better condensing, longer burner cycles). It also drives the setpoint from a schedule and room demand,
+tracks costs, and monitors the boiler.
+
+![Curve tab](docs/screenshots/en-curve.png)
+
+## How it works
+
+1. Every 10 min the integration records outdoor temperature, room temperature and setpoint, **only**
+   in steady state: monitored program active for ≥ 2 h, heating on, outdoor temperature below the heating
+   limit, and no strong sunshine (solar filter: sun elevation + cloud coverage from your weather entity).
+   If ViCare does not report the current setpoint, it is read from the active program's `number` entity
+   (`comfortEnergySaving` → comfort temperature, etc.).
+2. **Multi-room mode** (Better Thermostat / Versatile Thermostat): the deviation used is the one of the
+   hardest room to heat. Among rooms calling for heat, the coldest one decides; when none calls for heat,
+   the margin of the least warm room lets the curve go down. Rooms with an open window are ignored.
+3. Every night (04:00) samples are grouped in 1 K outdoor-temperature bins; the Viessmann curve formula
+   gives the required flow correction, fitted by least squares:
+   - same deviation everywhere → **shift**;
+   - deviation depending on outdoor temperature → **slope** (only if outdoor temperature varied by ≥ 5 K).
+4. Safeguards: only 50 % of the correction, at most ±0.1 slope and ±3 K shift per day, min/max bounds,
+   0.3 K tolerance, outlier clipping.
+5. After an adjustment, samples are reset (they described the previous curve).
+
+Proposals are sent as notifications; with the Home Assistant mobile app (`notify.mobile_app_…`) they carry
+**Apply** / **Ignore** buttons.
+
+**Computed curve**: a physical radiator model (output ∝ ΔT^1.3) is fitted to the measurements, then the
+closest Viessmann curve is proposed. It extrapolates correctly to very cold weather even when measurements
+only cover a narrow temperature range, so the curve converges within days.
+
+## Setpoint pilot (off / dry run / active)
+
+ViCare can neither edit the boiler's schedule nor force a program, so the pilot acts on the
+**active program's setpoint**, like the ViCare app. It applies:
+
+- a **weekly schedule** edited in the panel (30-minute grid), importable from your thermostatic radiator
+  valve heads' schedules;
+- **per-room setpoints** (comfort / reduced) following the same schedule for the selected rooms
+  (Better Thermostat): one schedule for the whole house;
+- **demand-based standby**: during comfort periods, standby setpoint (15 °C by default) once no room has
+  called for heat for 20 min, immediate return as soon as a room calls for heat;
+- **optimal start**: recovery speed learned from past mornings, corrected by the **weather forecast**
+  (colder forecast → earlier start);
+- **solar anticipation**: setpoint lowered by 1 °C when strong sunshine is forecast.
+
+In **dry run** the pilot computes and shows its decisions without writing anything. When **active**, the
+original setpoints (boiler and rooms) are saved and restored when switching back to dry run / off.
+Safeguards: at least 5 min between writes, at most 48 boiler writes per day.
+
+![Schedule tab](docs/screenshots/en-planning.png)
+
+## Monitoring and diagnostics
+
+- **Alerts** (`binary_sensor` + notification): low pressure, unreachable boiler, frost protection, short
+  cycling, **overconsumption** (yesterday's gas well above the thermal-model forecast), **slow pressure loss**
+  (4-week trend: small leak, expansion vessel), **annual service** due ("Service done" button).
+- **Thermal balance**: house heat loss in W/K per heating season, and **heating limit** (outdoor temperature
+  above which free gains are enough), applicable in one click.
+- **Radiator balancing** from the heating power learned by Better Thermostat.
+- **Weekly report** by notification.
+
+![Diagnostics tab](docs/screenshots/en-diag.png)
+
+## Costs and Energy dashboard
+
+Set the gas price per kWh and the m³ → kWh conversion (from your bill) in the options. The integration provides:
+
+- `sensor.…_gas_price` (EUR/m³): pick it as the **price entity** of the gas sources in the Energy dashboard
+  (sources = ViCare daily gas consumption sensors);
+- `sensor.…_heating_gas_cost_today` and `…_hot_water_gas_cost_today` (EUR, reset daily).
+
+## "Heating curve" panel
+
+Sidebar panel (administrators), in English or French depending on Home Assistant's language:
+
+| Tab | Content |
+|---|---|
+| **Curve** | Current curve + proposal / pending edit / computed curve, condensing zone, measured flow, manual tuning with preview, deviations by outdoor temperature, history |
+| **Schedule** | Pilot mode, computed setpoint and reason, weekly grid, import from valve heads, room setpoints, 48-hour decision timeline |
+| **Rooms** | Temperature / setpoint / heat demand of each room, share of time each room is limiting |
+| **Savings** | Gas per degree-day (base 18 °C) over 60 days, cost in €, estimated savings; morning recovery analysis |
+| **Boiler** | Burner starts and cycles, share of time condensing, pressure and its trend, annual service |
+| **Hot water** | Setpoint, tank, gas share, 50 °C recommendation, weekly anti-legionella boost |
+| **Diagnostics** | Heat loss (W/K) and heating limit per season, overconsumption days, radiator balancing, weekly report |
+
+**Dashboard card**: "Heating curve" card (type `custom:heating-curve-card`) with status, deviation, pilot,
+alerts, and Evaluate / Automatic adjustment buttons.
+
+![Boiler tab](docs/screenshots/en-boiler.png)
+
+## Installation / update
+
+- **HACS** (custom repository, category Integration): the repository contains `hacs.json`.
+- **Manual**: copy `custom_components/heating_curve_optimizer/` into `/config/custom_components/`,
+  then restart Home Assistant.
+
+Requirements: Home Assistant 2026.3 or newer, ViCare integration. Configuration: Settings › Devices & services ›
+Add integration › "Heating curve optimizer" (ViCare entities are pre-filled), then **Configure** for the options.
+
+## Caveats
+
+- **Thermostatic valves** in the room of the boiler's room sensor: open them fully.
+- ViCare writes slope and shift in the same call, reading the other value from its cache: when both change,
+  the slope is written first, then the shift once the new slope has been read back.
+- Piloted rooms: disable their other schedules (valve heads, Scheduler) so they don't fight each other.
+- Cycle length is approximate: ViCare counts burner hours in whole hours.
+- Condensing is estimated from the **flow** temperature (no return sensor).
+
+## Development
+
+```bash
+# Unit tests (any Python 3.12+)
+python -m pytest tests
+# Unit + Home Assistant integration tests (Linux or WSL: the HA test harness requires Linux)
+bash tools/ha-tests.sh
+# README screenshots (fake data, tools/demo): serve the repository, then run
+python -m http.server 8765 --bind 127.0.0.1
+pwsh tools/screenshots.ps1
+```
+
+## License
+
+MIT, see [LICENSE](LICENSE).

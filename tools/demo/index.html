@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Démo du panneau</title>
+<style>
+  /* Variables du thème clair par défaut de Home Assistant (approximation pour les captures) */
+  :root {
+    --primary-color: #03a9f4; --text-primary-color: #fff; --primary-text-color: #212121; --secondary-text-color: #727272;
+    --disabled-color: #bdbdbd; --divider-color: rgba(0, 0, 0, .12); --primary-background-color: #fafafa;
+    --secondary-background-color: #e5e5e5; --card-background-color: #fff; --error-color: #db4437; --warning-color: #ffa600;
+    --app-header-background-color: #03a9f4; --app-header-text-color: #fff; --ha-card-border-radius: 12px;
+  }
+  body.dark {
+    --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b; --divider-color: rgba(225, 225, 225, .12);
+    --primary-background-color: #111; --secondary-background-color: #282828; --card-background-color: #1c1c1c;
+    --app-header-background-color: #101e24;
+  }
+  body { margin: 0; font-family: Roboto, "Segoe UI", system-ui, sans-serif; background: var(--primary-background-color); }
+</style>
+<script>
+  // Icônes MDI non chargées dans la démo : un emplacement vide de la bonne taille
+  customElements.define("ha-icon", class extends HTMLElement {
+    connectedCallback() { this.style.cssText = "display:inline-block;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)"; }
+  });
+  const p = new URLSearchParams(location.search);
+  if (p.get("theme") === "dark") document.documentElement.classList.add("dark");
+  try { localStorage.setItem("hco-tab", p.get("tab") || "curve"); } catch {}
+</script>
+<script src="demo-hass.js"></script>
+<script type="module" src="../../custom_components/heating_curve_optimizer/frontend/heating-curve-panel.js"></script>
+</head>
+<body>
+<heating-curve-panel id="panel"></heating-curve-panel>
+<script type="module">
+  if (new URLSearchParams(location.search).get("theme") === "dark") document.body.classList.add("dark");
+  await customElements.whenDefined("heating-curve-panel");
+  const el = document.getElementById("panel");
+  el.narrow = false;
+  el.hass = window.demoHass;
+</script>
+</body>
+</html>

@@ -2,10 +2,39 @@
 // Lit uniquement les entités de l'intégration (fonctionne aussi pour les non-administrateurs).
 const PLATFORM = "heating_curve_optimizer";
 
+// --- Traductions (clé = texte français) ------------------------------------------
+let LANG = "fr";
+let LOCALE = "fr-FR";
+const EN = {
+  "Courbe de chauffe": "Heating curve",
+  "Intégration « Optimiseur de courbe de chauffe » introuvable.": "“Heating curve optimizer” integration not found.",
+  "écart moyen": "mean deviation",
+  "pilotage : {mode}": "pilot: {mode}",
+  "consigne pilotée": "piloted setpoint",
+  "Auto": "Auto",
+  "Simulation": "Dry run",
+  "réglage de la courbe": "curve adjustment",
+  "Évaluer maintenant": "Evaluate now",
+  "Ajustement auto": "Auto adjustment",
+  "État de l'optimiseur de courbe de chauffe, pilotage et alertes chaudière.":
+    "Heating curve optimizer status, setpoint pilot and boiler alerts.",
+};
+const t = (s, vars) => {
+  let out = (LANG === "en" && EN[s]) || s;
+  if (vars) out = out.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ""));
+  return out;
+};
+const setLang = (hass) => {
+  if (!hass?.language) return;
+  LANG = hass.language.toLowerCase().startsWith("fr") ? "fr" : "en";
+  LOCALE = LANG === "fr" ? "fr-FR" : "en-GB";
+};
+setLang(document.querySelector("home-assistant")?.hass);
+
 const fmt = (v, d = 1, signed = false) => {
   const n = parseFloat(v);
   if (!Number.isFinite(n)) return "—";
-  const s = n.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const s = n.toLocaleString(LOCALE, { minimumFractionDigits: d, maximumFractionDigits: d });
   return signed && n > 0 ? `+${s}` : s;
 };
 const esc = (s) =>
@@ -26,8 +55,9 @@ class HeatingCurveCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    setLang(hass);
     const ids = this._ids();
-    const key = Object.values(ids).map((id) => hass.states[id]?.last_updated).join("|");
+    const key = Object.values(ids).map((id) => hass.states[id]?.last_updated).join("|") + LANG;
     if (key !== this._key) {
       this._key = key;
       this._render();
@@ -58,7 +88,7 @@ class HeatingCurveCard extends HTMLElement {
     const ids = this._ids();
     const st = (k) => (ids[k] ? h.states[ids[k]] : undefined);
     if (!st("status")) {
-      this.shadowRoot.innerHTML = `<ha-card header="Courbe de chauffe"><div style="padding:16px">Intégration « Optimiseur de courbe de chauffe » introuvable.</div></ha-card>`;
+      this.shadowRoot.innerHTML = `<ha-card header="${t("Courbe de chauffe")}"><div style="padding:16px">${t("Intégration « Optimiseur de courbe de chauffe » introuvable.")}</div></ha-card>`;
       return;
     }
     const alert = st("alert");
@@ -87,17 +117,17 @@ class HeatingCurveCard extends HTMLElement {
       </style>
       <ha-card>
         <a href="/courbe-de-chauffe" class="head"><ha-icon icon="mdi:chart-bell-curve-cumulative"></ha-icon>
-          <div style="flex:1"><div class="title">Courbe de chauffe</div><div class="status">${esc(st("status").state)}</div></div></a>
+          <div style="flex:1"><div class="title">${t("Courbe de chauffe")}</div><div class="status">${esc(st("status").state)}</div></div></a>
         <div class="kpis">
-          <div class="kpi"><div class="v">${fmt(st("error")?.state, 2, true)} K</div><div class="l">écart moyen</div></div>
+          <div class="kpi"><div class="v">${fmt(st("error")?.state, 2, true)} K</div><div class="l">${t("écart moyen")}</div></div>
           <div class="kpi"><div class="v">${sp && sp.state !== "unknown" ? `${fmt(sp.state, 0)} °C` : "—"}</div>
-            <div class="l">${pilot ? `pilotage : ${esc(pilot.toLowerCase())}` : "consigne pilotée"}${sp?.attributes.mode ? ` · ${esc(sp.attributes.mode)}` : ""}</div></div>
-          <div class="kpi"><div class="v">${auto ? "Auto" : "Simulation"}</div><div class="l">réglage de la courbe</div></div>
+            <div class="l">${pilot ? t("pilotage : {mode}", { mode: esc(pilot.toLowerCase()) }) : t("consigne pilotée")}${sp?.attributes.mode ? ` · ${esc(sp.attributes.mode)}` : ""}</div></div>
+          <div class="kpi"><div class="v">${auto ? t("Auto") : t("Simulation")}</div><div class="l">${t("réglage de la courbe")}</div></div>
         </div>
         ${alerts.map((m) => `<div class="alert"><ha-icon icon="mdi:alert-circle"></ha-icon><div>${esc(m)}</div></div>`).join("")}
         <div class="actions">
-          <button data-action="evaluate">Évaluer maintenant</button>
-          <button data-action="auto" class="${auto ? "on" : ""}">Ajustement auto</button>
+          <button data-action="evaluate">${t("Évaluer maintenant")}</button>
+          <button data-action="auto" class="${auto ? "on" : ""}">${t("Ajustement auto")}</button>
         </div>
       </ha-card>`;
     this.shadowRoot.querySelectorAll("button").forEach((b) =>
@@ -117,7 +147,7 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === "heating-curve-card")) {
   window.customCards.push({
     type: "heating-curve-card",
-    name: "Courbe de chauffe",
-    description: "État de l'optimiseur de courbe de chauffe, pilotage et alertes chaudière.",
+    name: t("Courbe de chauffe"),
+    description: t("État de l'optimiseur de courbe de chauffe, pilotage et alertes chaudière."),
   });
 }
