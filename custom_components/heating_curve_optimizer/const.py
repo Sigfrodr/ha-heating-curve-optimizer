@@ -29,6 +29,16 @@ CONF_LEGIONELLA_WEEKDAY = "legionella_weekday"  # 0 = lundi … 6 = dimanche
 CONF_LEGIONELLA_TIME = "legionella_time"
 CONF_LEGIONELLA_TEMP = "legionella_temp"
 CONF_LEGIONELLA_MINUTES = "legionella_minutes"
+CONF_STANDBY_TEMP = "standby_temp"  # consigne de veille quand aucune pièce ne demande
+CONF_DEMAND_DELAY = "demand_delay_minutes"
+CONF_SUN_ANTICIPATION = "sun_anticipation"
+CONF_GAS_PRICE = "gas_price"  # €/kWh
+CONF_KWH_PER_M3 = "kwh_per_m3"
+CONF_WEEKLY_REPORT = "weekly_report"
+CONF_REPORT_WEEKDAY = "report_weekday"
+CONF_REPORT_TIME = "report_time"
+
+CONTROL_MODES = ("off", "simulation", "active")
 
 # Les clés de réglage portent le nom des champs de heating_curve.Settings
 TUNING_KEYS = (
@@ -63,6 +73,14 @@ DEFAULT_OPTIONS = {
     CONF_LEGIONELLA_TIME: "14:00:00",
     CONF_LEGIONELLA_TEMP: 60.0,
     CONF_LEGIONELLA_MINUTES: 90.0,
+    CONF_STANDBY_TEMP: 15.0,
+    CONF_DEMAND_DELAY: 20.0,
+    CONF_SUN_ANTICIPATION: True,
+    CONF_GAS_PRICE: 0.11,
+    CONF_KWH_PER_M3: 11.0,
+    CONF_WEEKLY_REPORT: True,
+    CONF_REPORT_WEEKDAY: "0",
+    CONF_REPORT_TIME: "08:00:00",
     "damping": 0.5,
     "max_shift_step": 3.0,
     "max_slope_step": 0.1,

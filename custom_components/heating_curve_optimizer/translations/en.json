@@ -39,6 +39,26 @@
               "solar_min_elevation": "Hauteur du soleil à partir de laquelle on ignore"
             }
           },
+          "pilot": {
+            "name": "Pilotage de la consigne",
+            "description": "Activé depuis le panneau (onglet Planning) ou l'entité « Pilotage de la consigne ». En période confort, la consigne passe en veille quand aucune pièce ne demande de chaleur.",
+            "data": {
+              "standby_temp": "Consigne de veille",
+              "demand_delay_minutes": "Délai sans demande avant la veille",
+              "sun_anticipation": "Baisser d'1 °C quand un soleil franc est prévu"
+            }
+          },
+          "costs_report": {
+            "name": "Coûts et rapport hebdomadaire",
+            "description": "Prix du kWh de gaz (facture, abonnement exclu) et pouvoir calorifique (kWh par m³, indiqué sur la facture, souvent 10,5 à 11,5).",
+            "data": {
+              "gas_price": "Prix du gaz",
+              "kwh_per_m3": "Conversion m³ → kWh",
+              "weekly_report": "Envoyer un bilan chaque semaine",
+              "report_weekday": "Jour du bilan",
+              "report_time": "Heure du bilan"
+            }
+          },
           "alerts": {
             "name": "Alertes chaudière",
             "data": {

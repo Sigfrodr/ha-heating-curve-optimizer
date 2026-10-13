@@ -17,6 +17,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CLIMATE,
@@ -44,6 +45,11 @@ from .const import (
     CONF_SOLAR_MIN_ELEVATION,
     CONF_WEATHER,
     DEFAULT_OPTIONS,
+    CONF_GAS_PRICE,
+    CONF_KWH_PER_M3,
+    CONF_REPORT_TIME,
+    CONF_REPORT_WEEKDAY,
+    CONF_WEEKLY_REPORT,
     DOMAIN,
     TUNING_KEYS,
 )
@@ -57,7 +63,9 @@ from .analysis import (
     find_recoveries,
     recovery_advice,
 )
+from .control import balance_rooms, gas_cost, thermal_balance, weekly_report
 from .heating_curve import Proposal, Sample, Settings, compute_proposal
+from .pilot import HeatingPilot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +79,11 @@ def _sample_error(sample: dict) -> float:
     if "eff" in sample:
         return sample["eff"]
     return sample["room"] - sample["target"]
+
+
+def _ts(value) -> float:
+    """Horodatage (s) d'une ligne de statistiques, quel que soit son format."""
+    return value if isinstance(value, (int, float)) else value.timestamp()
 
 
 def _float(value) -> float | None:
@@ -100,6 +113,7 @@ class HeatingCurveOptimizer:
             "legionella_last": None,
         }
         self._unavailable_since: float | None = None
+        self.pilot = HeatingPilot(self)
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._regime = None
         self._regime_since = time.time()
@@ -132,6 +146,13 @@ class HeatingCurveOptimizer:
         )
         # Montée anti-légionelle interrompue par un redémarrage : remettre la consigne
         self._schedule_legionella_restore()
+        hour, minute, second = (int(x) for x in str(self.cfg[CONF_REPORT_TIME]).split(":"))
+        self._unsubs.append(
+            async_track_time_change(
+                self.hass, self._async_report_tick, hour=hour, minute=minute, second=second
+            )
+        )
+        await self.pilot.async_start()
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
@@ -211,6 +232,8 @@ class HeatingCurveOptimizer:
             status = "stabilisation (programme/consigne)"
         elif now - self.data["last_change"] < settle:
             status = "stabilisation (après ajustement)"
+        elif self.pilot.mode == "active" and (self.data.get("control_state") or {}).get("mode") != "confort":
+            status = "pilotage hors confort (mesure ignorée)"
         elif self._solar_gain():
             status = "gains solaires (mesure ignorée)"
         else:
@@ -485,6 +508,83 @@ class HeatingCurveOptimizer:
             "advice": recovery_advice(recoveries),
         }
 
+    # ------------------------------------------------------- statistiques
+
+    async def async_daily_stats(self, days: int) -> list[tuple[float, float | None, float | None]]:
+        """[(début du jour, m³ de gaz chauffage, T ext moyenne)] depuis les statistiques long terme."""
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
+            statistics_during_period,
+        )
+
+        gas = self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
+        outside = self.cfg[CONF_OUTSIDE]
+        start = dt_util.start_of_local_day() - timedelta(days=days)
+        ids = {i for i in (gas, outside) if i}
+        stats = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period, self.hass, start, None, ids, "day", None, {"change", "mean"}
+        )
+        gas_by_day = {r["start"]: r.get("change") for r in stats.get(gas, [])} if gas else {}
+        return [(r["start"], gas_by_day.get(r["start"]), r.get("mean")) for r in stats.get(outside, [])]
+
+    async def async_diagnostics(self) -> dict:
+        """Bilan thermique par saison de chauffe et équilibrage des pièces."""
+        rows = await self.async_daily_stats(400)
+        kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
+        seasons: dict[str, list[tuple[float, float]]] = {}
+        for start, gas, outside in rows:
+            if gas is None or outside is None:
+                continue
+            day = dt_util.as_local(dt_util.utc_from_timestamp(start)) if isinstance(start, (int, float)) else start
+            year = day.year if day.month >= 9 else day.year - 1
+            seasons.setdefault(f"{year}-{year + 1}", []).append((gas * kwh_per_m3, outside))
+        balances = {}
+        for season, days in sorted(seasons.items()):
+            tb = thermal_balance(days, indoor=float(self.pilot.temps["comfort"]))
+            balances[season] = tb.__dict__ if tb else {"days": len([d for d in days if d[0] > 0])}
+        rooms = []
+        for entity_id in self.cfg.get(CONF_ROOMS) or []:
+            st = self.hass.states.get(entity_id)
+            rooms.append((entity_id, _float(st.attributes.get("heating_power")) if st else None))
+        return {
+            "thermal": balances,
+            "rooms": [r.__dict__ for r in balance_rooms(rooms)],
+            "kwh_per_m3": kwh_per_m3,
+        }
+
+    # ---------------------------------------------------- rapport hebdomadaire
+
+    async def _async_report_tick(self, now) -> None:
+        if self.cfg.get(CONF_WEEKLY_REPORT) and now.weekday() == int(self.cfg[CONF_REPORT_WEEKDAY]):
+            await self.async_send_weekly_report()
+
+    async def async_weekly_report_text(self) -> str:
+        rows = await self.async_daily_stats(15)
+        now = time.time()
+
+        def week(lo: float, hi: float) -> tuple[float | None, float]:
+            sel = [r for r in rows if lo <= _ts(r[0]) < hi]
+            gas = [r[1] for r in sel if r[1] is not None]
+            dju = sum(max(0.0, 18 - r[2]) for r in sel if r[2] is not None)
+            return (sum(gas) if gas else None), dju
+
+        gas, dju = week(now - 7 * 86400, now)
+        gas_prev, dju_prev = week(now - 14 * 86400, now - 7 * 86400)
+        cost = None
+        if gas is not None:
+            _, cost = gas_cost(gas, float(self.cfg[CONF_KWH_PER_M3]), float(self.cfg[CONF_GAS_PRICE]))
+        ratio_prev = gas_prev / dju_prev if gas_prev and dju_prev >= 5 else None
+        adjustments = sum(1 for h in self.data["history"] if h["t"] >= now - 7 * 86400)
+        return weekly_report(
+            gas, cost, dju, ratio_prev, adjustments,
+            self.pilot.standby_hours(now - 7 * 86400), list(self.data["alerts"].values()),
+        )
+
+    async def async_send_weekly_report(self) -> str:
+        text = await self.async_weekly_report_text()
+        await self._async_notify("Chauffage : bilan de la semaine", text, "weekly")
+        return text
+
     def snapshot(self) -> dict:
         """Données pour le panneau."""
         return {
@@ -525,6 +625,17 @@ class HeatingCurveOptimizer:
                 if (b := self.burner)
                 else None
             ),
+            "pilot": self.pilot.snapshot(),
+            "costs": {
+                "gas_price": float(self.cfg[CONF_GAS_PRICE]),
+                "kwh_per_m3": float(self.cfg[CONF_KWH_PER_M3]),
+            },
+            "report": {
+                "enabled": bool(self.cfg.get(CONF_WEEKLY_REPORT)),
+                "weekday": int(self.cfg[CONF_REPORT_WEEKDAY]),
+                "time": self.cfg[CONF_REPORT_TIME],
+                "notify": self.cfg.get(CONF_NOTIFY) or "",
+            },
             "legionella": {
                 "enabled": self.legionella,
                 "weekday": int(self.cfg[CONF_LEGIONELLA_WEEKDAY]),
@@ -543,6 +654,7 @@ class HeatingCurveOptimizer:
                     domain, DOMAIN, f"{self.entry.entry_id}_{key}"
                 )
                 for domain, key in (
+                    ("select", "control_mode"),
                     ("sensor", "status"),
                     ("switch", "auto"),
                     ("button", "evaluate"),

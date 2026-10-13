@@ -5,8 +5,8 @@ const X_MAX = 20;
 const CHART_H = 300;
 const MARGIN = { l: 44, r: 16, t: 14, b: 30 };
 const SERIES = {
-  light: { s1: "#2a78d6", s2: "#eb6834" },
-  dark: { s1: "#3987e5", s2: "#d95926" },
+  light: { s1: "#2a78d6", s2: "#eb6834", s3: "#1baf7a", s4: "#eda100" },
+  dark: { s1: "#3987e5", s2: "#d95926", s3: "#199e70", s4: "#c98500" },
 };
 
 // --- Modèle Viessmann (identique à heating_curve.py) -------------------------
@@ -40,6 +40,8 @@ const DAY = 86400000;
 const dayLabel = (ms) => new Date(ms).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 const CONDENSING_MAX = 55; // °C de départ sous lesquels la condensation est assurée
 const DJU_BASE = 18;
+const toMin = (hhmm) => { const [h, m] = String(hhmm).split(":"); return +h * 60 + +m; };
+const fromMin = (m) => (m >= 1440 ? "24:00" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
 
 function niceTicks(min, max, count = 5) {
   const raw = (max - min) / count;
@@ -169,6 +171,22 @@ tr:last-child td { border-bottom:none; }
 .kpi .l { font-size:12px; color:var(--secondary-text-color); }
 .advice { display:flex; gap:10px; align-items:flex-start; font-size:14px; background:var(--secondary-background-color); border-radius:8px; padding:10px 12px; margin-top:12px; }
 .advice ha-icon { --mdc-icon-size:20px; color:var(--primary-color); flex:none; }
+.seg { display:inline-flex; border:1px solid var(--divider-color); border-radius:8px; overflow:hidden; }
+.seg button { font:inherit; font-size:14px; padding:8px 16px; border:none; background:transparent; color:var(--primary-text-color); cursor:pointer; }
+.seg button + button { border-left:1px solid var(--divider-color); }
+.seg button[aria-checked="true"] { background:var(--primary-color); color:var(--text-primary-color, #fff); }
+.sched { display:grid; gap:3px; user-select:none; touch-action:none; overflow-x:auto; }
+.sched-hours, .sched-row { display:grid; grid-template-columns:36px 1fr; align-items:center; min-width:520px; }
+.sched-hours { grid-template-columns:36px repeat(8, 1fr); font-size:11px; color:var(--secondary-text-color); }
+.sched-day { font-size:12px; color:var(--secondary-text-color); }
+.sched-cells { display:grid; grid-template-columns:repeat(48, 1fr); gap:1px; }
+.sched-cells .cell { height:26px; background:var(--secondary-background-color); cursor:pointer; }
+.sched-cells .cell:nth-child(6n+1) { margin-left:1px; }
+.sched-cells .cell.on { background:var(--primary-color); }
+.sched-cells .cell:hover { outline:1px solid var(--primary-text-color); outline-offset:-1px; }
+.bar { display:inline-block; width:120px; height:8px; border-radius:4px; background:var(--secondary-background-color); margin-right:8px; vertical-align:middle; overflow:hidden; }
+.bar > div { height:100%; border-radius:4px; }
+pre.report { white-space:pre-wrap; font-family:inherit; font-size:14px; background:var(--secondary-background-color); border-radius:8px; padding:12px; margin:0 0 12px; }
 `;
 
 class HeatingCurvePanel extends HTMLElement {
@@ -342,6 +360,57 @@ class HeatingCurvePanel extends HTMLElement {
       if (!confirm(`Régler la consigne d'eau chaude sur ${v} °C ?`)) return;
       await this._hass.callService("number", "set_value", { entity_id: this._data.entities.dhw_target, value: v });
       this._toast(`Consigne d'eau chaude envoyée : ${v} °C`);
+    } else if (a === "pilot-mode") {
+      const mode = el.dataset.mode;
+      if (mode === "active" && !confirm(
+        "Activer le pilotage ?\n\nLe pilote écrira la consigne du programme actif de la chaudière (planning, veille sans demande, " +
+        "relance anticipée). Les consignes d'origine sont mémorisées et remises si tu repasses en Désactivé ou Simulation.")) return;
+      try {
+        this._data = await this._hass.callWS({ type: `${DOMAIN}/set_control_mode`, mode });
+        this._toast({ off: "Pilotage désactivé", simulation: "Pilotage en simulation", active: "Pilotage actif" }[mode]);
+      } catch (err) {
+        this._toast(`Échec : ${err?.message || err}`);
+      }
+      this._render();
+    } else if (a === "draft-temp") {
+      const k = el.dataset.key;
+      this._draftTemps[k] = clamp(this._draftTemps[k] + +el.dataset.delta, k === "comfort" ? 10 : 5, k === "comfort" ? 26 : 24);
+      this._draftDirty = true;
+      this._render();
+    } else if (a === "save-schedule") {
+      try {
+        this._data = await this._hass.callWS({
+          type: `${DOMAIN}/set_schedule`, schedule: this._scheduleFromDraft(this._draft),
+          comfort: this._draftTemps.comfort, reduced: this._draftTemps.reduced,
+        });
+        this._draft = null;
+        this._toast("Planning enregistré");
+      } catch (err) {
+        this._toast(`Échec : ${err?.message || err}`);
+      }
+      this._render();
+    } else if (a === "reset-schedule") {
+      this._draft = null;
+      this._render();
+    } else if (a === "import-trv") {
+      this._draft = this._draftFromSchedule(this._data.pilot.trv_suggestion);
+      this._draftDirty = true;
+      this._toast("Planning des têtes importé : vérifie puis enregistre");
+      this._render();
+    } else if (a === "copy-monday") {
+      for (let d = 1; d < 5; d++) this._draft[d] = [...this._draft[0]];
+      this._draftDirty = true;
+      this._render();
+    } else if (a === "send-report") {
+      try {
+        await this._hass.callWS({ type: `${DOMAIN}/weekly_report`, send: true });
+        this._toast("Bilan envoyé");
+      } catch (err) {
+        this._toast(`Échec : ${err?.message || err}`);
+      }
+    } else if (a === "reload-diag") {
+      this._diag = null;
+      this._render();
     } else if (a === "reload-stats") {
       this._stats = null;
       this._recov = null;
@@ -403,6 +472,7 @@ class HeatingCurvePanel extends HTMLElement {
     this._ro?.disconnect();
     root.querySelectorAll("[data-chart]").forEach((el) => this._ro?.observe(el));
     this._bindHover();
+    this._bindSchedule();
   }
 
   _body() {
@@ -424,7 +494,8 @@ class HeatingCurvePanel extends HTMLElement {
         <div class="state">
           <ha-icon icon="mdi:information-outline"></ha-icon>
           <div><b>${esc(d.status)}</b>
-            <small>Programme ${esc(live.program || "—")} · évaluation chaque jour à ${esc(String(s.evaluate_at).slice(0, 5))}</small></div>
+            <small>Programme ${esc(live.program || "—")} · évaluation chaque jour à ${esc(String(s.evaluate_at).slice(0, 5))}${d.pilot.mode !== "off" && d.pilot.state
+              ? ` · pilotage ${d.pilot.mode === "active" ? "actif" : "simulé"} : ${esc(d.pilot.state.mode)} ${fmt(d.pilot.state.setpoint, 0)} °C` : ""}</small></div>
         </div>
         <div class="mode">
           <button class="toggle" role="switch" aria-checked="${d.auto}" aria-label="Ajustement automatique" data-action="toggle-auto"></button>
@@ -502,10 +573,12 @@ class HeatingCurvePanel extends HTMLElement {
       : "";
     const tabs = [
       ["curve", "mdi:chart-bell-curve-cumulative", "Courbe"],
+      ["planning", "mdi:calendar-clock", "Planning"],
       ["rooms", "mdi:home-thermometer-outline", "Pièces"],
       ["savings", "mdi:piggy-bank-outline", "Économies"],
       ["boiler", "mdi:fire", "Chaudière"],
       ["dhw", "mdi:water-boiler", "Eau chaude"],
+      ["diag", "mdi:stethoscope", "Diagnostic"],
     ];
     const nav = `<nav class="tabs" role="tablist">${tabs
       .map(([k, icon, label]) =>
@@ -513,7 +586,9 @@ class HeatingCurvePanel extends HTMLElement {
       .join("")}</nav>`;
 
     let content;
-    if (this._tab === "rooms") content = this._roomsTab(live);
+    if (this._tab === "planning") content = this._planningTab(pal);
+    else if (this._tab === "diag") content = this._diagnosticTab(pal);
+    else if (this._tab === "rooms") content = this._roomsTab(live);
     else if (this._tab === "savings") content = this._savingsTab(pal);
     else if (this._tab === "boiler") content = this._boilerTab(pal);
     else if (this._tab === "dhw") content = this._dhwTab();
@@ -654,9 +729,14 @@ class HeatingCurvePanel extends HTMLElement {
       const ref = ratioOf(days.slice(-30));
       const delta = before && after ? ((after - before) / before) * 100 : null;
       const totalGas = days.slice(-30).reduce((a, x) => a + (x.gas || 0), 0);
+      const c = d.costs;
+      const eur = (m3) => m3 * c.kwh_per_m3 * c.gas_price;
+      const dju30 = days.slice(-30).reduce((a, x) => a + x.dju, 0);
+      const saving = before && after && after < before ? eur((before - after) * dju30) : null;
       body = `<div class="kpis">
           <div class="kpi"><div class="v">${fmt(ref > 0 ? ref : null, 3)}</div><div class="l">m³ par degré-jour (30 j)</div></div>
-          <div class="kpi"><div class="v">${fmt(totalGas, 0)} m³</div><div class="l">gaz chauffage sur 30 j</div></div>
+          <div class="kpi"><div class="v">${fmt(totalGas, 0)} m³ <small>≈ ${fmt(eur(totalGas), 0)} €</small></div><div class="l">gaz chauffage sur 30 j (${fmt(c.gas_price, 3)} €/kWh)</div></div>
+          <div class="kpi"><div class="v">${saving != null ? `${fmt(saving, 0)} €` : "—"}</div><div class="l">économie estimée sur 30 j depuis le dernier ajustement</div></div>
           <div class="kpi"><div class="v">${fmt(before, 3)}</div><div class="l">m³/DJU avant le dernier ajustement</div></div>
           <div class="kpi"><div class="v">${fmt(after, 3)}${delta != null ? ` <small>(${fmt(delta, 0, true)} %)</small>` : ""}</div><div class="l">m³/DJU depuis</div></div>
         </div>
@@ -779,6 +859,198 @@ class HeatingCurvePanel extends HTMLElement {
         <div class="mode"><button class="toggle" role="switch" aria-checked="${lg.enabled}" aria-label="Montée anti-légionelle" data-action="toggle-legionella"></button>
           <div>${lg.enabled ? "Activée" : "Désactivée"}</div></div>
       </div>`;
+  }
+
+  // ------------------------------------------------------------------ onglet Planning
+  _draftFromSchedule(schedule) {
+    const draft = {};
+    for (let d = 0; d < 7; d++) {
+      const cells = new Array(48).fill(false);
+      for (const [s, e] of schedule[d] || schedule[String(d)] || []) {
+        const a = Math.round(toMin(s) / 30);
+        const b = Math.round(toMin(e) / 30);
+        for (let i = a; i < b && i < 48; i++) cells[i] = true;
+      }
+      draft[d] = cells;
+    }
+    return draft;
+  }
+
+  _scheduleFromDraft(draft) {
+    const out = {};
+    for (let d = 0; d < 7; d++) {
+      const periods = [];
+      let start = null;
+      draft[d].forEach((on, i) => {
+        if (on && start === null) start = i;
+        if (!on && start !== null) { periods.push([fromMin(start * 30), fromMin(i * 30)]); start = null; }
+      });
+      if (start !== null) periods.push([fromMin(start * 30), "24:00"]);
+      out[d] = periods;
+    }
+    return out;
+  }
+
+  _planningTab(pal) {
+    const p = this._data.pilot;
+    if (!this._draft) {
+      this._draft = this._draftFromSchedule(p.schedule);
+      this._draftTemps = { ...p.temps };
+      this._draftDirty = false;
+    }
+    const st = p.state;
+    const modes = [["off", "Désactivé"], ["simulation", "Simulation"], ["active", "Actif"]];
+    const modeColors = { confort: pal.s1, veille: pal.s2, relance: pal.s3, soleil: pal.s4, "réduit": "var(--disabled-color, #9e9e9e)" };
+    const modeLabels = { confort: "Confort", veille: "Veille (pas de demande)", relance: "Relance anticipée", soleil: "Soleil attendu", "réduit": "Réduit" };
+    const seg = `<div class="seg" role="radiogroup" aria-label="Pilotage">${modes.map(([k, l]) =>
+      `<button role="radio" aria-checked="${p.mode === k}" data-action="pilot-mode" data-mode="${k}">${l}</button>`).join("")}</div>`;
+    const explain = {
+      off: "Le planning et les consignes de la chaudière s'appliquent comme d'habitude.",
+      simulation: "Le pilote calcule la consigne qu'il appliquerait, sans rien écrire sur la chaudière : regarde la frise ci-dessous pendant quelques jours.",
+      active: "Le pilote écrit la consigne du programme actif de la chaudière. Les consignes d'origine seront remises si tu le désactives.",
+    }[p.mode];
+    const decision = st
+      ? `<div class="kpis" style="margin-top:12px">
+          <div class="kpi"><div class="v">${fmt(st.setpoint, 0)} °C</div><div class="l">consigne ${p.mode === "active" ? "appliquée" : "calculée"}</div></div>
+          <div class="kpi"><div class="v"><span class="chip" style="font-size:14px"><i class="key-dot" style="background:${modeColors[st.mode]}"></i>${esc(modeLabels[st.mode] || st.mode)}</span></div>
+            <div class="l">${esc(st.reason)}</div></div>
+          <div class="kpi"><div class="v">${p.preheat_rate ? `${fmt(p.preheat_rate, 1)} K/h` : "—"}</div><div class="l">vitesse de relance apprise</div></div>
+          <div class="kpi"><div class="v">${fmt(p.standby_hours_7d, 0)} h</div><div class="l">de veille sur 7 jours${p.mode === "simulation" ? " (simulées)" : ""}</div></div>
+        </div>` : "";
+
+    const days = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+    const grid = `<div class="sched" role="grid" aria-label="Planning hebdomadaire">
+      <div class="sched-hours"><span></span>${Array.from({ length: 8 }, (_, i) => `<span>${String(i * 3).padStart(2, "0")}h</span>`).join("")}</div>
+      ${days.map((label, d) => `<div class="sched-row"><span class="sched-day">${label}</span><div class="sched-cells">${this._draft[d]
+        .map((on, i) => `<div class="cell ${on ? "on" : ""}" data-day="${d}" data-cell="${i}" title="${label} ${fromMin(i * 30)}–${fromMin((i + 1) * 30)}"></div>`).join("")}</div></div>`).join("")}
+    </div>`;
+    const t = this._draftTemps;
+    const stepper = (key, label) => `
+      <div class="stepper"><span class="name">${label}</span><span class="box">
+        <button data-action="draft-temp" data-key="${key}" data-delta="-1" aria-label="Diminuer">−</button>
+        <output>${fmt(t[key], 0)} °C</output>
+        <button data-action="draft-temp" data-key="${key}" data-delta="1" aria-label="Augmenter">+</button></span></div>`;
+    const log = (p.decision_log || []);
+    const timeline = log.length ? this._timeline(log, modeColors, modeLabels) : `<p class="sub">Aucune décision enregistrée pour l'instant.</p>`;
+    return `<div class="card"><h2>Pilotage de la consigne</h2>
+        <p class="sub">${explain}</p>${seg}${decision}
+        <p class="note" style="margin-top:8px">Veille : ${fmt(p.standby_temp, 0)} °C après ${fmt(p.demand_delay, 0)} min sans demande de chaleur.
+          ${p.forecast?.temps?.length ? `Prévisions : ${fmt(Math.min(...p.forecast.temps.slice(0, 4)), 0)} °C au plus bas sur 4 h.` : ""}</p></div>
+      <div class="card"><h2>Planning de la semaine</h2>
+        <p class="sub">Clique ou glisse sur la grille : bleu = confort, vide = réduit (pas de 30 min).</p>
+        <div class="grid2" style="margin-bottom:12px">${stepper("comfort", "Consigne confort")}${stepper("reduced", "Consigne réduite")}</div>
+        ${grid}
+        <div class="actions" style="margin-top:12px">
+          <button class="btn primary" data-action="save-schedule" ${this._draftDirty ? "" : "disabled"}>Enregistrer</button>
+          <button class="btn" data-action="reset-schedule" ${this._draftDirty ? "" : "disabled"}>Annuler</button>
+          <button class="btn" data-action="import-trv" ${p.trv_suggestion ? "" : "disabled"}>Importer depuis les têtes thermostatiques</button>
+          <button class="btn" data-action="copy-monday">Copier le lundi sur les jours ouvrés</button>
+        </div></div>
+      <div class="card"><h2>Décisions des dernières 48 h</h2>${timeline}</div>`;
+  }
+
+  _timeline(log, colors, labels) {
+    const w = this._widths.timeline || 600;
+    const now = Date.now() / 1000;
+    const t0 = now - 48 * 3600;
+    const x = (t) => 40 + ((Math.max(t, t0) - t0) / (now - t0)) * (w - 52);
+    const segs = log.map((e, i) => ({ t: e[0], mode: e[1], sp: e[2], end: i + 1 < log.length ? log[i + 1][0] : now }))
+      .filter((s) => s.end > t0);
+    const ticks = [];
+    for (let k = 0; k <= 4; k++) ticks.push(t0 + (k * 12) * 3600);
+    const used = [...new Set(segs.map((s) => s.mode))];
+    this._charts.timeline = {
+      f: { w, iw: w - 52 },
+      generic: (px) => {
+        const t = t0 + ((px - 40) / (w - 52)) * (now - t0);
+        const s = segs.find((z) => z.t <= t && t < z.end) || segs[segs.length - 1];
+        return { x: px, y: 22, html: `<b>${esc(labels[s.mode] || s.mode)}</b><div>${fmt(s.sp, 0)} °C · ${dateFr(s.t)} → ${dateFr(s.end)}</div>` };
+      },
+    };
+    return `<div class="legend">${used.map((m) => `<span><i class="key-dot" style="background:${colors[m]}"></i>${esc(labels[m] || m)}</span>`).join("")}</div>
+      <div class="chart" data-chart="timeline"><svg width="${w}" height="64" role="img" aria-label="Frise des décisions du pilote">
+        ${segs.map((s) => `<rect x="${x(s.t)}" y="8" width="${Math.max(1, x(s.end) - x(s.t) - 1)}" height="28" rx="3" fill="${colors[s.mode] || "gray"}"/>`).join("")}
+        ${ticks.map((t) => `<text x="${x(t)}" y="56" text-anchor="middle">${new Date(t * 1000).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit" })}</text>`).join("")}
+        <g class="hover" style="display:none"><circle r="4" fill="var(--primary-text-color)"/></g>
+        <rect class="hit" x="40" y="4" width="${w - 52}" height="36" fill="transparent"/>
+      </svg><div class="tooltip"></div></div>`;
+  }
+
+  _bindSchedule() {
+    const grid = this.shadowRoot.querySelector(".sched");
+    if (!grid) return;
+    const paint = (cell) => {
+      const d = +cell.dataset.day;
+      const i = +cell.dataset.cell;
+      if (this._draft[d][i] === this._paintValue) return;
+      this._draft[d][i] = this._paintValue;
+      cell.classList.toggle("on", this._paintValue);
+      this._draftDirty = true;
+      this.shadowRoot.querySelectorAll('[data-action="save-schedule"],[data-action="reset-schedule"]').forEach((b) => { b.disabled = false; });
+    };
+    grid.addEventListener("pointerdown", (e) => {
+      const cell = e.target.closest(".cell");
+      if (!cell) return;
+      e.preventDefault();
+      this._painting = true;
+      this._paintValue = !this._draft[+cell.dataset.day][+cell.dataset.cell];
+      paint(cell);
+    });
+    grid.addEventListener("pointerover", (e) => {
+      const cell = e.target.closest(".cell");
+      if (cell && this._painting) paint(cell);
+    });
+    const stop = () => { this._painting = false; };
+    grid.addEventListener("pointerup", stop);
+    grid.addEventListener("pointerleave", stop);
+  }
+
+  // ------------------------------------------------------------------ onglet Diagnostic
+  _ensureDiagnostics() {
+    if (this._diag || this._diagLoading) return;
+    this._diagLoading = true;
+    Promise.all([
+      this._hass.callWS({ type: `${DOMAIN}/diagnostics` }),
+      this._hass.callWS({ type: `${DOMAIN}/weekly_report` }),
+    ])
+      .then(([diag, report]) => { this._diag = { ...diag, report: report.text }; })
+      .catch((err) => { this._diag = { error: err?.message || String(err) }; })
+      .finally(() => { this._diagLoading = false; this._render(); });
+  }
+
+  _diagnosticTab(pal) {
+    this._ensureDiagnostics();
+    const g = this._diag;
+    if (!g) return `<div class="card"><div class="empty">Analyse en cours…</div></div>`;
+    if (g.error) return `<div class="card"><div class="empty err">${esc(g.error)}</div></div>`;
+    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const seasons = Object.entries(g.thermal || {});
+    const thermal = seasons.length
+      ? `<div class="table-wrap"><table><thead><tr><th>Saison de chauffe</th><th>Déperditions</th><th>Talon</th><th>Fiabilité (R²)</th><th>Jours</th></tr></thead>
+        <tbody>${seasons.map(([season, t]) => t.loss_w_per_k != null
+          ? `<tr><td>${esc(season)}</td><td><b>${fmt(t.loss_w_per_k, 0)} W/K</b></td><td>${fmt(t.base_kwh_per_day, 1)} kWh/j</td><td>${fmt(t.r2, 2)}</td><td>${t.days}</td></tr>`
+          : `<tr><td>${esc(season)}</td><td colspan="4">pas assez de jours de chauffe (${t.days})</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="empty">Pas encore de statistiques de gaz.</div>`;
+    const rooms = g.rooms || [];
+    const maxRel = Math.max(1.8, ...rooms.map((r) => r.relative));
+    const balance = rooms.length
+      ? `<div class="table-wrap"><table><thead><tr><th>Pièce</th><th>Puissance de chauffe relative</th><th>Conseil</th></tr></thead>
+        <tbody>${rooms.map((r) => `<tr><td>${esc(name(r.entity_id))}</td>
+          <td><div class="bar"><div style="width:${(r.relative / maxRel) * 100}%;background:${pal.s1}"></div></div>${fmt(r.relative * 100, 0)} % de la médiane</td>
+          <td style="white-space:normal">${esc(r.advice)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="empty">Il faut au moins deux pièces suivies avec Better Thermostat (onglet Pièces).</div>`;
+    return `<div class="card"><h2>Bilan thermique de la maison</h2>
+        <p class="sub">Déperditions estimées à partir du gaz consommé et de l'écart intérieur / extérieur, jour par jour (rendement supposé 95 %).
+          Moins de W/K = maison mieux isolée : compare les saisons avant et après des travaux.</p>${thermal}</div>
+      <div class="card"><h2>Équilibrage des radiateurs</h2>
+        <p class="sub">Vitesse de chauffe apprise par Better Thermostat pour chaque pièce, comparée à la médiane. Un radiateur qui chauffe beaucoup plus vite
+          que les autres « vole » l'eau chaude aux pièces lentes.</p>${balance}</div>
+      <div class="card"><h2>Bilan hebdomadaire</h2>
+        <p class="sub">${this._data.report.enabled ? `Envoyé chaque ${["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"][this._data.report.weekday]} à ${esc(String(this._data.report.time).slice(0, 5))}` : "Envoi désactivé"}
+          ${this._data.report.notify ? `sur ${esc(this._data.report.notify)} et` : ""} dans les notifications de Home Assistant.</p>
+        <pre class="report">${esc(g.report || "")}</pre>
+        <div class="actions"><button class="btn" data-action="send-report">Envoyer maintenant</button>
+          <button class="btn" data-action="reload-diag">Actualiser</button></div></div>`;
   }
 
   // ------------------------------------------------------------------ graphique en colonnes (une série, par jour)

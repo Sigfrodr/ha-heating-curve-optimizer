@@ -15,6 +15,7 @@ from .const import DOMAIN
 
 PANEL_URL_PATH = "courbe-de-chauffe"
 PANEL_COMPONENT = "heating-curve-panel"
+CARD_COMPONENT = "heating-curve-card"
 STATIC_URL = f"/{DOMAIN}_static"
 _REGISTERED = f"{DOMAIN}_panel_registered"
 _STATIC_REGISTERED = f"{DOMAIN}_static_registered"
@@ -36,6 +37,12 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_get)
         websocket_api.async_register_command(hass, ws_set_curve)
         websocket_api.async_register_command(hass, ws_recoveries)
+        websocket_api.async_register_command(hass, ws_set_control_mode)
+        websocket_api.async_register_command(hass, ws_set_schedule)
+        websocket_api.async_register_command(hass, ws_diagnostics)
+        websocket_api.async_register_command(hass, ws_weekly_report)
+        # Carte de tableau de bord, chargée sur toutes les pages
+        frontend.add_extra_js_url(hass, f"{STATIC_URL}/{CARD_COMPONENT}.js?v={version}")
     await panel_custom.async_register_panel(
         hass,
         webcomponent_name=PANEL_COMPONENT,
@@ -120,3 +127,72 @@ async def ws_recoveries(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "unavailable", f"Historique indisponible : {err}")
         return
     connection.send_result(msg["id"], result)
+
+
+def _command(name: str, extra: dict | None = None):
+    return websocket_api.websocket_command(
+        {vol.Required("type"): f"{DOMAIN}/{name}", vol.Optional("entry_id"): str, **(extra or {})}
+    )
+
+
+async def _run(hass, connection, msg, func) -> None:
+    optimizer = _optimizer(hass, msg.get("entry_id"))
+    if optimizer is None:
+        connection.send_error(msg["id"], "not_found", "Optimiseur non configuré")
+        return
+    try:
+        result = await func(optimizer)
+    except (ValueError, KeyError, RuntimeError) as err:
+        connection.send_error(msg["id"], "failed", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
+@_command("set_control_mode", {vol.Required("mode"): vol.In(["off", "simulation", "active"])})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_control_mode(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        await o.pilot.async_set_mode(msg["mode"])
+        return o.snapshot()
+
+    await _run(hass, connection, msg, run)
+
+
+PERIOD = vol.All([vol.Match(r"^([01]\d|2[0-4]):[0-5]\d$")], vol.Length(min=2, max=2))
+
+
+@_command(
+    "set_schedule",
+    {
+        vol.Required("schedule"): {vol.Coerce(str): [PERIOD]},
+        vol.Required("comfort"): vol.All(vol.Coerce(float), vol.Range(min=10, max=26)),
+        vol.Required("reduced"): vol.All(vol.Coerce(float), vol.Range(min=5, max=24)),
+    },
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_schedule(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        await o.pilot.async_set_schedule(msg["schedule"], msg["comfort"], msg["reduced"])
+        return o.snapshot()
+
+    await _run(hass, connection, msg, run)
+
+
+@_command("diagnostics")
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_diagnostics(hass: HomeAssistant, connection, msg: dict) -> None:
+    await _run(hass, connection, msg, lambda o: o.async_diagnostics())
+
+
+@_command("weekly_report", {vol.Optional("send", default=False): bool})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_weekly_report(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        text = await (o.async_send_weekly_report() if msg["send"] else o.async_weekly_report_text())
+        return {"text": text}
+
+    await _run(hass, connection, msg, run)

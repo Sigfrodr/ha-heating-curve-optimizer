@@ -22,6 +22,7 @@ async def async_setup_entry(
             SampleCountSensor(optimizer),
             BurnerStartsSensor(optimizer),
             CycleLengthSensor(optimizer),
+            PilotSetpointSensor(optimizer),
         ]
     )
 
@@ -99,3 +100,25 @@ class CycleLengthSensor(OptimizerEntity, SensorEntity):
     def native_value(self) -> float | None:
         b = self.optimizer.burner
         return b.cycle_minutes if b else None
+
+
+class PilotSetpointSensor(OptimizerEntity, SensorEntity):
+    _attr_icon = "mdi:thermostat-auto"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "pilot_setpoint", "Consigne pilotée")
+
+    @property
+    def native_value(self) -> float | None:
+        state = self.optimizer.data.get("control_state")
+        return state.get("setpoint") if state else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        state = self.optimizer.data.get("control_state") or {}
+        return {
+            "pilotage": self.optimizer.pilot.mode,
+            "mode": state.get("mode"),
+            "raison": state.get("reason"),
+        }

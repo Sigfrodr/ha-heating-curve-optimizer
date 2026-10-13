@@ -37,6 +37,14 @@ from .const import (
     CONF_SOLAR_FILTER,
     CONF_SOLAR_MIN_ELEVATION,
     CONF_WEATHER,
+    CONF_DEMAND_DELAY,
+    CONF_GAS_PRICE,
+    CONF_KWH_PER_M3,
+    CONF_REPORT_TIME,
+    CONF_REPORT_WEEKDAY,
+    CONF_STANDBY_TEMP,
+    CONF_SUN_ANTICIPATION,
+    CONF_WEEKLY_REPORT,
     DEFAULT_OPTIONS,
     DOMAIN,
 )
@@ -163,6 +171,20 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
                 vol.Required(CONF_LEGIONELLA_TEMP): _number(55, 70, 1, "°C"),
                 vol.Required(CONF_LEGIONELLA_MINUTES): _number(30, 240, 10, "min"),
             },
+            "pilot": {
+                vol.Required(CONF_STANDBY_TEMP): _number(5, 20, 1, "°C"),
+                vol.Required(CONF_DEMAND_DELAY): _number(5, 120, 5, "min"),
+                vol.Required(CONF_SUN_ANTICIPATION): selector.BooleanSelector(),
+            },
+            "costs_report": {
+                vol.Required(CONF_GAS_PRICE): _number(0.01, 1, 0.001, "€/kWh"),
+                vol.Required(CONF_KWH_PER_M3): _number(8, 13, 0.01, "kWh/m³"),
+                vol.Required(CONF_WEEKLY_REPORT): selector.BooleanSelector(),
+                vol.Required(CONF_REPORT_WEEKDAY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=weekdays)
+                ),
+                vol.Required(CONF_REPORT_TIME): selector.TimeSelector(),
+            },
             "algorithm": {
                 vol.Required(CONF_SETTLE_MINUTES): _number(0, 720, 10, "min"),
                 vol.Required(CONF_SAMPLE_MINUTES): _number(5, 60, 1, "min"),
@@ -195,4 +217,4 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
         )
 
 
-SECTIONS = ("rooms_weather", "alerts", "dhw", "algorithm")
+SECTIONS = ("rooms_weather", "pilot", "costs_report", "alerts", "dhw", "algorithm")
