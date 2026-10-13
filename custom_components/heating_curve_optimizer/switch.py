@@ -13,7 +13,7 @@ from .entity import OptimizerEntity
 async def async_setup_entry(
     hass: HomeAssistant, entry: OptimizerConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    async_add_entities([AutoAdjustSwitch(entry.runtime_data)])
+    async_add_entities([AutoAdjustSwitch(entry.runtime_data), LegionellaSwitch(entry.runtime_data)])
 
 
 class AutoAdjustSwitch(OptimizerEntity, SwitchEntity):
@@ -31,3 +31,20 @@ class AutoAdjustSwitch(OptimizerEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self.optimizer.async_set_auto(False)
+
+
+class LegionellaSwitch(OptimizerEntity, SwitchEntity):
+    _attr_icon = "mdi:water-thermometer"
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "legionella", "Montée anti-légionelle hebdomadaire")
+
+    @property
+    def is_on(self) -> bool:
+        return self.optimizer.legionella
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self.optimizer.async_set_legionella(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self.optimizer.async_set_legionella(False)

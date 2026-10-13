@@ -35,6 +35,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         )
         websocket_api.async_register_command(hass, ws_get)
         websocket_api.async_register_command(hass, ws_set_curve)
+        websocket_api.async_register_command(hass, ws_recoveries)
     await panel_custom.async_register_panel(
         hass,
         webcomponent_name=PANEL_COMPONENT,
@@ -97,3 +98,25 @@ async def ws_set_curve(hass: HomeAssistant, connection, msg: dict) -> None:
         connection.send_error(msg["id"], "unavailable", str(err))
         return
     connection.send_result(msg["id"], optimizer.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/recoveries",
+        vol.Optional("entry_id"): str,
+        vol.Optional("days", default=7): vol.All(int, vol.Range(min=1, max=30)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_recoveries(hass: HomeAssistant, connection, msg: dict) -> None:
+    optimizer = _optimizer(hass, msg.get("entry_id"))
+    if optimizer is None:
+        connection.send_error(msg["id"], "not_found", "Optimiseur non configuré")
+        return
+    try:
+        result = await optimizer.async_recoveries(msg["days"])
+    except (KeyError, RuntimeError) as err:  # recorder absent ou indisponible
+        connection.send_error(msg["id"], "unavailable", f"Historique indisponible : {err}")
+        return
+    connection.send_result(msg["id"], result)

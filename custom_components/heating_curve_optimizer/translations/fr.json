@@ -24,21 +24,56 @@
         "data": {
           "programs": "Programmes ViCare pris en compte",
           "heating_limit": "Pas de collecte au-dessus de cette T° extérieure",
-          "settle_minutes": "Stabilisation après changement de programme / consigne / courbe",
-          "sample_minutes": "Intervalle de mesure",
-          "min_samples": "Échantillons minimum avant évaluation",
-          "max_age_days": "Durée de conservation des mesures",
           "evaluate_at": "Heure d'évaluation quotidienne",
-          "notify": "Service de notification (ex. mobile_app_mon_telephone)",
-          "damping": "Part de la correction appliquée",
-          "max_shift_step": "Variation max du décalage par ajustement",
-          "max_slope_step": "Variation max de la pente par ajustement",
-          "shift_min": "Décalage minimum",
-          "shift_max": "Décalage maximum",
-          "slope_min": "Pente minimum",
-          "slope_max": "Pente maximum",
-          "deadband": "Écart toléré",
-          "min_outside_spread": "Amplitude de T° ext. nécessaire pour modifier la pente"
+          "notify": "Service de notification (ex. mobile_app_mon_telephone)"
+        },
+        "sections": {
+          "rooms_weather": {
+            "name": "Pièces et météo",
+            "description": "Mode multi-pièces : la courbe est réglée pour la pièce la plus difficile à chauffer parmi celles qui demandent de la chaleur. Le filtre solaire ignore les mesures quand le soleil chauffe la maison.",
+            "data": {
+              "rooms": "Thermostats de pièces (Better Thermostat, Versatile Thermostat…)",
+              "weather": "Météo (couverture nuageuse)",
+              "solar_filter": "Ignorer les mesures par grand soleil",
+              "solar_cloud_max": "Couverture nuageuse sous laquelle on ignore",
+              "solar_min_elevation": "Hauteur du soleil à partir de laquelle on ignore"
+            }
+          },
+          "alerts": {
+            "name": "Alertes chaudière",
+            "data": {
+              "min_pressure": "Pression d'eau minimum",
+              "short_cycle_minutes": "Durée de cycle brûleur sous laquelle alerter"
+            }
+          },
+          "dhw": {
+            "name": "Eau chaude : montée anti-légionelle",
+            "description": "Activée par l'interrupteur « Montée anti-légionelle hebdomadaire ». La consigne d'eau chaude est montée puis remise à sa valeur.",
+            "data": {
+              "legionella_weekday": "Jour",
+              "legionella_time": "Heure",
+              "legionella_temp": "Température",
+              "legionella_minutes": "Durée"
+            }
+          },
+          "algorithm": {
+            "name": "Algorithme (avancé)",
+            "data": {
+              "settle_minutes": "Stabilisation après changement de programme / consigne / courbe",
+              "sample_minutes": "Intervalle de mesure",
+              "min_samples": "Échantillons minimum avant évaluation",
+              "max_age_days": "Durée de conservation des mesures",
+              "damping": "Part de la correction appliquée",
+              "max_shift_step": "Variation max du décalage par ajustement",
+              "max_slope_step": "Variation max de la pente par ajustement",
+              "shift_min": "Décalage minimum",
+              "shift_max": "Décalage maximum",
+              "slope_min": "Pente minimum",
+              "slope_max": "Pente maximum",
+              "deadband": "Écart toléré",
+              "min_outside_spread": "Amplitude de T° ext. nécessaire pour modifier la pente"
+            }
+          }
         }
       }
     }

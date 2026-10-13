@@ -8,6 +8,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
@@ -15,31 +16,47 @@ from .const import (
     CONF_CLIMATE,
     CONF_EVALUATE_AT,
     CONF_HEATING_LIMIT,
+    CONF_LEGIONELLA_MINUTES,
+    CONF_LEGIONELLA_TEMP,
+    CONF_LEGIONELLA_TIME,
+    CONF_LEGIONELLA_WEEKDAY,
+    CONF_MIN_PRESSURE,
     CONF_MAX_AGE_DAYS,
     CONF_MIN_SAMPLES,
     CONF_NOTIFY,
     CONF_OUTSIDE,
     CONF_PROGRAMS,
     CONF_ROOM,
+    CONF_ROOMS,
     CONF_SAMPLE_MINUTES,
     CONF_SETTLE_MINUTES,
     CONF_SHIFT,
+    CONF_SHORT_CYCLE_MINUTES,
     CONF_SLOPE,
+    CONF_SOLAR_CLOUD_MAX,
+    CONF_SOLAR_FILTER,
+    CONF_SOLAR_MIN_ELEVATION,
+    CONF_WEATHER,
     DEFAULT_OPTIONS,
     DOMAIN,
 )
 
 
 def _number(lo: float, hi: float, step: float, unit: str | None = None) -> selector.NumberSelector:
-    return selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=lo, max=hi, step=step, unit_of_measurement=unit, mode=selector.NumberSelectorMode.BOX
-        )
+    # Le schéma des sélecteurs refuse une clé à None : ne la passer que si elle est définie.
+    config = selector.NumberSelectorConfig(
+        min=lo, max=hi, step=step, mode=selector.NumberSelectorMode.BOX
     )
+    if unit:
+        config["unit_of_measurement"] = unit
+    return selector.NumberSelector(config)
 
 
 def _entity(domain: str, device_class: str | None = None) -> selector.EntitySelector:
-    return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain, device_class=device_class))
+    config = selector.EntitySelectorConfig(domain=domain)
+    if device_class:
+        config["device_class"] = device_class
+    return selector.EntitySelector(config)
 
 
 ENTITIES_SCHEMA = vol.Schema(
@@ -94,26 +111,63 @@ class HeatingCurveOptimizerConfigFlow(ConfigFlow, domain=DOMAIN):
 class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            user_input.setdefault(CONF_NOTIFY, "")
-            return self.async_create_entry(data=user_input)
+            flat: dict[str, Any] = {}
+            for key, value in user_input.items():
+                if key in SECTIONS:
+                    flat.update(value)
+                else:
+                    flat[key] = value
+            flat.setdefault(CONF_NOTIFY, "")
+            flat.setdefault(CONF_WEATHER, "")
+            flat.setdefault(CONF_ROOMS, [])
+            return self.async_create_entry(data=flat)
 
         climate = self.hass.states.get(self.config_entry.data[CONF_CLIMATE])
         programs = list(climate.attributes.get("vicare_programs", [])) if climate else []
         current = {**DEFAULT_OPTIONS, **self.config_entry.options}
         programs = sorted(set(programs) | set(current[CONF_PROGRAMS]))
+        weekdays = [
+            selector.SelectOptionDict(value=str(i), label=label)
+            for i, label in enumerate(
+                ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+            )
+        ]
 
-        schema = vol.Schema(
-            {
+        fields = {
+            None: {
                 vol.Required(CONF_PROGRAMS): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=programs, multiple=True, custom_value=True)
                 ),
                 vol.Required(CONF_HEATING_LIMIT): _number(5, 25, 0.5, "°C"),
+                vol.Required(CONF_EVALUATE_AT): selector.TimeSelector(),
+                vol.Optional(CONF_NOTIFY): selector.TextSelector(),
+            },
+            "rooms_weather": {
+                vol.Optional(CONF_ROOMS): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate", multiple=True)
+                ),
+                vol.Optional(CONF_WEATHER): _entity("weather"),
+                vol.Required(CONF_SOLAR_FILTER): selector.BooleanSelector(),
+                vol.Required(CONF_SOLAR_CLOUD_MAX): _number(0, 100, 5, "%"),
+                vol.Required(CONF_SOLAR_MIN_ELEVATION): _number(0, 60, 1, "°"),
+            },
+            "alerts": {
+                vol.Required(CONF_MIN_PRESSURE): _number(0.3, 2.5, 0.1, "bar"),
+                vol.Required(CONF_SHORT_CYCLE_MINUTES): _number(2, 30, 1, "min"),
+            },
+            "dhw": {
+                vol.Required(CONF_LEGIONELLA_WEEKDAY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=weekdays)
+                ),
+                vol.Required(CONF_LEGIONELLA_TIME): selector.TimeSelector(),
+                vol.Required(CONF_LEGIONELLA_TEMP): _number(55, 70, 1, "°C"),
+                vol.Required(CONF_LEGIONELLA_MINUTES): _number(30, 240, 10, "min"),
+            },
+            "algorithm": {
                 vol.Required(CONF_SETTLE_MINUTES): _number(0, 720, 10, "min"),
                 vol.Required(CONF_SAMPLE_MINUTES): _number(5, 60, 1, "min"),
                 vol.Required(CONF_MIN_SAMPLES): _number(6, 2000, 1),
                 vol.Required(CONF_MAX_AGE_DAYS): _number(1, 60, 1, "j"),
-                vol.Required(CONF_EVALUATE_AT): selector.TimeSelector(),
-                vol.Optional(CONF_NOTIFY): selector.TextSelector(),
                 vol.Required("damping"): _number(0.1, 1, 0.05),
                 vol.Required("max_shift_step"): _number(1, 10, 1, "K"),
                 vol.Required("max_slope_step"): _number(0.1, 1, 0.1),
@@ -123,8 +177,22 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
                 vol.Required("slope_max"): _number(0.2, 3.5, 0.1),
                 vol.Required("deadband"): _number(0, 2, 0.1, "K"),
                 vol.Required("min_outside_spread"): _number(0, 20, 1, "K"),
+            },
+        }
+        schema: dict = dict(fields[None])
+        suggested: dict[str, Any] = {str(k): current.get(str(k)) for k in fields[None]}
+        for name in SECTIONS:
+            schema[vol.Required(name)] = section(
+                vol.Schema(fields[name]), {"collapsed": name != "rooms_weather"}
+            )
+            suggested[name] = {
+                str(k): current.get(str(k)) for k in fields[name] if current.get(str(k)) not in (None, "")
             }
-        )
+        suggested = {k: v for k, v in suggested.items() if v not in (None, "")}
         return self.async_show_form(
-            step_id="init", data_schema=self.add_suggested_values_to_schema(schema, current)
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema), suggested),
         )
+
+
+SECTIONS = ("rooms_weather", "alerts", "dhw", "algorithm")

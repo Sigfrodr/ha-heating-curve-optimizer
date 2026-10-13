@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -16,7 +16,13 @@ async def async_setup_entry(
 ) -> None:
     optimizer = entry.runtime_data
     async_add_entities(
-        [StatusSensor(optimizer), MeanErrorSensor(optimizer), SampleCountSensor(optimizer)]
+        [
+            StatusSensor(optimizer),
+            MeanErrorSensor(optimizer),
+            SampleCountSensor(optimizer),
+            BurnerStartsSensor(optimizer),
+            CycleLengthSensor(optimizer),
+        ]
     )
 
 
@@ -65,3 +71,31 @@ class SampleCountSensor(OptimizerEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         return len(self.optimizer.data["samples"])
+
+
+class BurnerStartsSensor(OptimizerEntity, SensorEntity):
+    _attr_icon = "mdi:fire-circle"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "burner_starts_24h", "Démarrages brûleur (24 h)")
+
+    @property
+    def native_value(self) -> int | None:
+        b = self.optimizer.burner
+        return b.starts if b else None
+
+
+class CycleLengthSensor(OptimizerEntity, SensorEntity):
+    _attr_icon = "mdi:timer-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "cycle_minutes_24h", "Durée moyenne de cycle brûleur (24 h)")
+
+    @property
+    def native_value(self) -> float | None:
+        b = self.optimizer.burner
+        return b.cycle_minutes if b else None

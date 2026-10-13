@@ -34,6 +34,13 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const dateFr = (t) =>
   new Date(t * 1000).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// Écart retenu pour une mesure : pièce limitante en multi-pièces, sinon sonde chaudière
+const sampleErr = (s) => (s.eff != null ? s.eff : s.room - s.target);
+const DAY = 86400000;
+const dayLabel = (ms) => new Date(ms).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+const CONDENSING_MAX = 55; // °C de départ sous lesquels la condensation est assurée
+const DJU_BASE = 18;
+
 function niceTicks(min, max, count = 5) {
   const raw = (max - min) / count;
   const mag = 10 ** Math.floor(Math.log10(raw));
@@ -55,7 +62,7 @@ function binSamples(samples, deadClip = 3) {
     .sort((a, b) => a[0] - b[0])
     .map(([, g]) => ({
       outside: median(g.map((s) => s.outside)),
-      error: median(g.map((s) => clamp(s.room - s.target, -deadClip, deadClip))),
+      error: median(g.map((s) => clamp(sampleErr(s), -deadClip, deadClip))),
       count: g.length,
     }));
 }
@@ -136,12 +143,32 @@ button.btn:disabled { opacity:.45; cursor:default; }
 .meta { display:flex; justify-content:space-between; font-size:12px; color:var(--secondary-text-color); }
 table { width:100%; border-collapse:collapse; font-size:13px; }
 th { text-align:left; font-weight:500; color:var(--secondary-text-color); padding:6px 8px; border-bottom:1px solid var(--divider-color); }
-td { padding:8px; border-bottom:1px solid var(--divider-color); font-variant-numeric:tabular-nums; }
+td { padding:8px; border-bottom:1px solid var(--divider-color); font-variant-numeric:tabular-nums; white-space:nowrap; }
+td:first-child { white-space:normal; }
 tr:last-child td { border-bottom:none; }
 .table-wrap { overflow-x:auto; }
 .msg { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--primary-text-color); color:var(--card-background-color, #fff);
   padding:10px 16px; border-radius:8px; font-size:14px; z-index:10; box-shadow:0 4px 12px rgba(0,0,0,.25); }
 .err { color:var(--error-color, #db4437); }
+.tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid var(--divider-color); scrollbar-width:none; }
+.tabs button { font:inherit; font-size:14px; font-weight:500; background:none; border:none; border-bottom:2px solid transparent; color:var(--secondary-text-color);
+  padding:10px 14px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; }
+.tabs button ha-icon { --mdc-icon-size:18px; }
+.tabs button[aria-selected="true"] { color:var(--primary-color); border-bottom-color:var(--primary-color); }
+.alert { display:flex; gap:12px; align-items:flex-start; border-radius:12px; padding:12px 16px; font-size:14px;
+  background:color-mix(in srgb, var(--error-color, #db4437) 12%, var(--card-background-color, #fff)); border:1px solid color-mix(in srgb, var(--error-color, #db4437) 40%, transparent); }
+.alert ha-icon { color:var(--error-color, #db4437); flex:none; }
+.alert ul { margin:4px 0 0; padding-left:18px; }
+.chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; border-radius:10px; padding:2px 8px;
+  background:var(--secondary-background-color); color:var(--secondary-text-color); white-space:nowrap; }
+.chip.on { background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); color:var(--primary-text-color); }
+.chip.lim { background:color-mix(in srgb, var(--primary-color) 18%, transparent); color:var(--primary-text-color); }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:12px; }
+.kpi .v { font-size:22px; font-weight:500; font-variant-numeric:tabular-nums; }
+.kpi .v small { font-size:13px; color:var(--secondary-text-color); font-weight:400; }
+.kpi .l { font-size:12px; color:var(--secondary-text-color); }
+.advice { display:flex; gap:10px; align-items:flex-start; font-size:14px; background:var(--secondary-background-color); border-radius:8px; padding:10px 12px; margin-top:12px; }
+.advice ha-icon { --mdc-icon-size:20px; color:var(--primary-color); flex:none; }
 `;
 
 class HeatingCurvePanel extends HTMLElement {
@@ -153,6 +180,13 @@ class HeatingCurvePanel extends HTMLElement {
     this._edit = null; // { slope, shift } en cours d'édition
     this._widths = {};
     this._charts = {};
+    this._stats = null;
+    this._recov = null;
+    try {
+      this._tab = localStorage.getItem("hco-tab") || "curve";
+    } catch {
+      this._tab = "curve";
+    }
     this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
   }
 
@@ -218,7 +252,7 @@ class HeatingCurvePanel extends HTMLElement {
   }
   _liveKey() {
     const e = this._data?.entities || {};
-    return Object.values(e)
+    return [...Object.values(e), ...(this._data?.rooms || [])]
       .map((id) => this._state(id)?.last_updated)
       .join("|");
   }
@@ -292,6 +326,26 @@ class HeatingCurvePanel extends HTMLElement {
     } else if (a === "apply-proposal") {
       const p = this._pendingProposal(live);
       if (p) await this._setCurve(p.new_slope, p.new_shift, "proposition validée manuellement", live);
+    } else if (a === "tab") {
+      this._tab = el.dataset.tab;
+      try {
+        localStorage.setItem("hco-tab", this._tab);
+      } catch {}
+      this._render();
+    } else if (a === "toggle-legionella") {
+      const on = !this._data.legionella.enabled;
+      await this._hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: this._data.own.legionella });
+      this._toast(on ? "Montée anti-légionelle hebdomadaire activée" : "Montée anti-légionelle désactivée");
+      this._fetch();
+    } else if (a === "set-dhw") {
+      const v = parseFloat(el.dataset.value);
+      if (!confirm(`Régler la consigne d'eau chaude sur ${v} °C ?`)) return;
+      await this._hass.callService("number", "set_value", { entity_id: this._data.entities.dhw_target, value: v });
+      this._toast(`Consigne d'eau chaude envoyée : ${v} °C`);
+    } else if (a === "reload-stats") {
+      this._stats = null;
+      this._recov = null;
+      this._render();
     } else if (a === "load-proposal") {
       const p = this._pendingProposal(live);
       if (p) this._edit = { slope: p.new_slope, shift: p.new_shift };
@@ -358,7 +412,7 @@ class HeatingCurvePanel extends HTMLElement {
     const proposal = this._pendingProposal(live);
     const s = d.settings;
     const mean = d.samples.length
-      ? d.samples.reduce((acc, x) => acc + x.room - x.target, 0) / d.samples.length
+      ? d.samples.reduce((acc, x) => acc + sampleErr(x), 0) / d.samples.length
       : null;
     const curveNow =
       live.outside != null && live.target != null && live.slope != null
@@ -441,11 +495,341 @@ class HeatingCurvePanel extends HTMLElement {
             <td>${esc(h.reason)}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="sub" style="margin:0">Aucun ajustement pour l'instant.</p>`;
 
-    return `${status}${tiles}
+    const alerts = Object.values(d.alerts || {});
+    const alertBanner = alerts.length
+      ? `<div class="alert" role="alert"><ha-icon icon="mdi:alert-circle"></ha-icon>
+          <div><b>Alerte chaudière</b><ul>${alerts.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div></div>`
+      : "";
+    const tabs = [
+      ["curve", "mdi:chart-bell-curve-cumulative", "Courbe"],
+      ["rooms", "mdi:home-thermometer-outline", "Pièces"],
+      ["savings", "mdi:piggy-bank-outline", "Économies"],
+      ["boiler", "mdi:fire", "Chaudière"],
+      ["dhw", "mdi:water-boiler", "Eau chaude"],
+    ];
+    const nav = `<nav class="tabs" role="tablist">${tabs
+      .map(([k, icon, label]) =>
+        `<button role="tab" aria-selected="${this._tab === k}" data-action="tab" data-tab="${k}"><ha-icon icon="${icon}"></ha-icon>${label}</button>`)
+      .join("")}</nav>`;
+
+    let content;
+    if (this._tab === "rooms") content = this._roomsTab(live);
+    else if (this._tab === "savings") content = this._savingsTab(pal);
+    else if (this._tab === "boiler") content = this._boilerTab(pal);
+    else if (this._tab === "dhw") content = this._dhwTab();
+    else content = `${tiles}
       <div class="main">${curveCard}${control}</div>
       ${errorCard}
       <div class="card"><h2>Historique des ajustements</h2>${history}</div>`;
+    return `${status}${alertBanner}${nav}${content}`;
   }
+
+  // ------------------------------------------------------------------ données long terme
+  _ensureStats() {
+    if (this._stats || this._statsLoading) return;
+    this._statsLoading = true;
+    const e = this._data.entities;
+    const now = Date.now();
+    const iso = (ms) => new Date(ms).toISOString();
+    const daily = [e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours].filter(Boolean);
+    const hourly = [e.supply, e.modulation].filter(Boolean);
+    const startDay = new Date(now - 60 * DAY);
+    startDay.setHours(0, 0, 0, 0);
+    Promise.all([
+      this._hass.callWS({
+        type: "recorder/statistics_during_period", start_time: iso(startDay.getTime()), end_time: iso(now),
+        statistic_ids: daily, period: "day", types: ["change", "mean"],
+      }),
+      this._hass.callWS({
+        type: "recorder/statistics_during_period", start_time: iso(now - 7 * DAY), end_time: iso(now),
+        statistic_ids: hourly, period: "hour", types: ["mean"],
+      }),
+    ])
+      .then(([day, hour]) => {
+        this._stats = { day, hour, at: now };
+      })
+      .catch((err) => {
+        this._stats = { error: err?.message || String(err) };
+      })
+      .finally(() => {
+        this._statsLoading = false;
+        this._render();
+      });
+  }
+
+  _ensureRecoveries() {
+    if (this._recov || this._recovLoading) return;
+    this._recovLoading = true;
+    this._hass
+      .callWS({ type: `${DOMAIN}/recoveries`, days: 7 })
+      .then((r) => {
+        this._recov = r;
+      })
+      .catch((err) => {
+        this._recov = { error: err?.message || String(err) };
+      })
+      .finally(() => {
+        this._recovLoading = false;
+        this._render();
+      });
+  }
+
+  _dailySeries(id, type) {
+    const rows = (id && this._stats?.day?.[id]) || [];
+    return rows.map((r) => ({ t: r.start, v: r[type] })).filter((r) => r.v != null);
+  }
+
+  // ------------------------------------------------------------------ onglet Pièces
+  _roomsTab(live) {
+    const d = this._data;
+    const counts = {};
+    for (const smp of d.samples) if (smp.lim) counts[smp.lim] = (counts[smp.lim] || 0) + 1;
+    const withLim = Object.values(counts).reduce((a, b) => a + b, 0);
+    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const rows = [{
+      id: d.entities.climate,
+      label: `${name(d.entities.climate)} (sonde chaudière)`,
+      cur: live.room,
+      tgt: live.target,
+      demand: live.room != null && live.target != null && live.room < live.target,
+      window: false,
+    }];
+    for (const id of d.rooms) {
+      const st = this._state(id);
+      const a = st?.attributes || {};
+      rows.push({
+        id, label: name(id), cur: num(a.current_temperature), tgt: num(a.temperature),
+        demand: a.hvac_action === "heating", window: !!(a.window_open || a.window_state === "on"),
+        off: !st || st.state === "off",
+      });
+    }
+    const table = `<div class="table-wrap"><table>
+      <thead><tr><th>Pièce</th><th>Ambiance</th><th>Consigne</th><th>Écart</th><th>État</th><th>Limitante</th></tr></thead>
+      <tbody>${rows.map((r) => {
+        const err = r.cur != null && r.tgt != null ? r.cur - r.tgt : null;
+        const share = withLim ? Math.round(((counts[r.id] || 0) / withLim) * 100) : null;
+        const chips = [
+          r.off ? `<span class="chip">arrêt</span>`
+            : r.demand ? `<span class="chip on">demande de chaleur</span>` : `<span class="chip">satisfaite</span>`,
+          r.window ? `<span class="chip">fenêtre ouverte</span>` : "",
+        ].join(" ");
+        return `<tr><td>${esc(r.label)}</td><td>${fmt(r.cur)} °C</td><td>${fmt(r.tgt)} °C</td>
+          <td>${fmt(err, 1, true)} K</td><td>${chips}</td>
+          <td>${share != null ? `<span class="chip ${share >= 40 ? "lim" : ""}">${share} % du temps</span>` : "—"}</td></tr>`;
+      }).join("")}</tbody></table></div>`;
+    const explain = d.rooms.length
+      ? `La courbe est réglée pour la pièce la plus difficile à chauffer : parmi les pièces qui demandent de la chaleur,
+         c'est la plus froide qui décide. Quand plus aucune ne demande, la marge de la moins chaude permet de baisser la courbe.`
+      : `Mode multi-pièces inactif : seule la sonde de la chaudière est utilisée. Ajoute tes thermostats dans
+         Paramètres › Appareils et services › Optimiseur de courbe de chauffe › Configurer › Pièces et météo.`;
+    return `<div class="card"><h2>Pièces suivies</h2><p class="sub">${explain}</p>${table}
+      ${withLim ? `<p class="note" style="margin-top:10px">« Limitante » : part des ${withLim} mesures en cours où la pièce a fixé l'écart retenu.</p>` : ""}
+      ${d.settings.solar_filter && d.entities.weather ? `<p class="note" style="margin-top:6px">Filtre solaire actif : les mesures prises par grand soleil sont ignorées (${esc(name(d.entities.weather))}).</p>` : ""}</div>`;
+  }
+
+  // ------------------------------------------------------------------ onglet Économies
+  _savingsTab(pal) {
+    this._ensureStats();
+    this._ensureRecoveries();
+    const d = this._data;
+    let body;
+    if (!this._stats) body = `<div class="empty">Chargement des statistiques…</div>`;
+    else if (this._stats.error) body = `<div class="empty err">${esc(this._stats.error)}</div>`;
+    else {
+      const gas = new Map(this._dailySeries(d.entities.gas_heating_day, "change").map((r) => [r.t, r.v]));
+      const days = this._dailySeries(d.entities.outside, "mean").map((r) => {
+        const dju = Math.max(0, DJU_BASE - r.v);
+        const g = gas.get(r.t);
+        return { t: r.t, dju, gas: g ?? null, ratio: g != null && dju >= 2 ? g / dju : null, ext: r.v };
+      });
+      const changes = d.history.map((h) => h.t * 1000);
+      const last = changes.length ? changes[changes.length - 1] : null;
+      const ratioOf = (list) => {
+        const ok = list.filter((x) => x.gas != null && x.dju >= 2);
+        const dju = ok.reduce((a, x) => a + x.dju, 0);
+        return dju >= 20 ? ok.reduce((a, x) => a + x.gas, 0) / dju : null;
+      };
+      const before = last ? ratioOf(days.filter((x) => x.t < last && x.t >= last - 21 * DAY)) : null;
+      const after = last ? ratioOf(days.filter((x) => x.t >= last)) : null;
+      const ref = ratioOf(days.slice(-30));
+      const delta = before && after ? ((after - before) / before) * 100 : null;
+      const totalGas = days.slice(-30).reduce((a, x) => a + (x.gas || 0), 0);
+      body = `<div class="kpis">
+          <div class="kpi"><div class="v">${fmt(ref > 0 ? ref : null, 3)}</div><div class="l">m³ par degré-jour (30 j)</div></div>
+          <div class="kpi"><div class="v">${fmt(totalGas, 0)} m³</div><div class="l">gaz chauffage sur 30 j</div></div>
+          <div class="kpi"><div class="v">${fmt(before, 3)}</div><div class="l">m³/DJU avant le dernier ajustement</div></div>
+          <div class="kpi"><div class="v">${fmt(after, 3)}${delta != null ? ` <small>(${fmt(delta, 0, true)} %)</small>` : ""}</div><div class="l">m³/DJU depuis</div></div>
+        </div>
+        <div class="legend"><span><i class="key-dot" style="background:${pal.s1}"></i>m³ de gaz par degré-jour (base ${DJU_BASE} °C)</span>
+          ${changes.length ? `<span><i class="key-line" style="border-color:${pal.s2}"></i>Ajustement de la courbe</span>` : ""}</div>
+        ${!days.some((x) => x.gas > 0)
+          ? `<div class="empty">Aucune consommation de gaz de chauffage sur la période : la saison de chauffe n'a pas encore commencé.</div>`
+          : this._columnChart("dju", days.filter((x) => x.ratio != null && x.ratio > 0), (x) => x.ratio, pal.s1, {
+          fmtY: (v) => fmt(v, 2),
+          markers: changes,
+          tip: (x) => `<b>${dayLabel(x.t)}</b><div>${fmt(x.gas, 1)} m³ · ${fmt(x.dju, 1)} DJU (ext. ${fmt(x.ext)} °C)</div><div><b>${fmt(x.ratio, 3)}</b> m³/DJU</div>`,
+          empty: "Pas encore assez de jours de chauffe (au moins 2 degrés-jours par jour).",
+        })}
+        <p class="note" style="margin-top:8px">Un degré-jour (DJU) mesure le besoin de chauffage : ${DJU_BASE} °C moins la température extérieure moyenne du jour.
+          Diviser le gaz par les DJU compare des périodes de météo différente : si le ratio baisse après un ajustement, l'économie est réelle.</p>`;
+    }
+    return `<div class="card"><h2>Consommation corrigée de la météo</h2>
+        <p class="sub">Gaz de chauffage par degré-jour sur 60 jours
+          <button class="btn" style="padding:2px 8px;margin-left:6px" data-action="reload-stats">Actualiser</button></p>${body}</div>
+      ${this._recoveryCard()}`;
+  }
+
+  _recoveryCard() {
+    const r = this._recov;
+    let body;
+    if (!r) body = `<p class="sub">Analyse de l'historique…</p>`;
+    else if (r.error) body = `<p class="sub err">${esc(r.error)}</p>`;
+    else {
+      const rows = r.recoveries.slice(-7).reverse();
+      body = rows.length
+        ? `<div class="table-wrap"><table>
+          <thead><tr><th>Relance</th><th>Baisse la nuit</th><th>Ambiance → consigne</th><th>Consigne atteinte en</th></tr></thead>
+          <tbody>${rows.map((x) => `<tr><td>${dateFr(x.start)}</td><td>${fmt(x.night_drop, 1)} K</td>
+            <td>${fmt(x.room_start)} °C → ${fmt(x.target, 0)} °C</td>
+            <td>${x.minutes == null ? "non atteinte" : `${fmt(x.minutes, 0)} min`}</td></tr>`).join("")}</tbody></table></div>`
+        : "";
+      body += `<div class="advice"><ha-icon icon="mdi:lightbulb-on-outline"></ha-icon><div>${esc(r.advice)}</div></div>`;
+    }
+    return `<div class="card"><h2>Réduit de nuit</h2><p class="sub">Relances du matin sur les 7 derniers jours (sonde de la chaudière)</p>${body}</div>`;
+  }
+
+  // ------------------------------------------------------------------ onglet Chaudière
+  _boilerTab(pal) {
+    this._ensureStats();
+    const d = this._data;
+    const e = d.entities;
+    const b = d.burner_24h;
+    const pressure = num(this._state(e.pressure)?.state);
+    let cond = null;
+    let daily = `<div class="empty">Chargement des statistiques…</div>`;
+    if (this._stats?.error) daily = `<div class="empty err">${esc(this._stats.error)}</div>`;
+    else if (this._stats) {
+      const sup = this._stats.hour?.[e.supply] || [];
+      const mod = new Map((this._stats.hour?.[e.modulation] || []).map((r) => [r.start, r.mean]));
+      const running = sup.filter((r) => (mod.get(r.start) ?? 0) > 0 && r.mean != null);
+      cond = running.length ? (running.filter((r) => r.mean < CONDENSING_MAX).length / running.length) * 100 : null;
+      const hours = new Map(this._dailySeries(e.burner_hours, "change").map((r) => [r.t, r.v]));
+      const days = this._dailySeries(e.burner_starts, "change").slice(-30)
+        .map((r) => ({ t: r.t, starts: r.v, hours: hours.get(r.t) ?? null }));
+      daily = this._columnChart("starts", days, (x) => x.starts, pal.s1, {
+        fmtY: (v) => fmt(v, 0),
+        tip: (x) => `<b>${dayLabel(x.t)}</b><div>${fmt(x.starts, 0)} démarrages</div>` +
+          (x.hours ? `<div>${fmt(x.hours, 0)} h de flamme · ${fmt((x.hours * 60) / Math.max(1, x.starts), 0)} min par cycle</div>` : ""),
+        empty: "Pas encore de statistiques de démarrage.",
+      });
+    }
+    const cycleWarn = b?.cycle_minutes != null && b.cycle_minutes < d.settings.short_cycle_minutes;
+    const advice = cycleWarn
+      ? "Cycles courts : la chaudière s'allume et s'éteint souvent. Un départ moins chaud (courbe plus basse) allonge les cycles et améliore le rendement."
+      : cond != null && cond < 50
+        ? `Moins de la moitié du temps de chauffe se fait avec un départ sous ${CONDENSING_MAX} °C : baisser la courbe améliorerait la condensation, donc le rendement.`
+        : b || cond != null ? "Fonctionnement correct." : "Les indicateurs se remplissent au fil des heures de chauffe.";
+    return `<div class="card"><h2>Brûleur et rendement</h2>
+        <p class="sub">Une chaudière à condensation récupère la chaleur des fumées quand l'eau revient froide : un départ sous ${CONDENSING_MAX} °C la garantit.</p>
+        <div class="kpis">
+          <div class="kpi"><div class="v">${b ? fmt(b.starts, 0) : "—"}</div><div class="l">démarrages sur ${b ? fmt(b.span_hours, 0) : 24} h</div></div>
+          <div class="kpi"><div class="v">${b?.cycle_minutes != null ? `${fmt(b.cycle_minutes, 0)} min` : "—"}</div>
+            <div class="l">de flamme par démarrage${cycleWarn ? " · <b>cycles courts</b>" : ""}</div></div>
+          <div class="kpi"><div class="v">${cond != null ? `${fmt(cond, 0)} %` : "—"}</div><div class="l">du temps de chauffe en condensation (7 j)</div></div>
+          <div class="kpi"><div class="v">${fmt(pressure, 1)} bar</div><div class="l">pression d'eau (alerte sous ${fmt(d.settings.min_pressure, 1)} bar)</div></div>
+        </div>
+        <div class="legend"><span><i class="key-dot" style="background:${pal.s1}"></i>Démarrages du brûleur par jour (30 j)</span></div>
+        ${daily}
+        <div class="advice"><ha-icon icon="mdi:lightbulb-on-outline"></ha-icon><div>${advice}</div></div>
+      </div>`;
+  }
+
+  // ------------------------------------------------------------------ onglet Eau chaude
+  _dhwTab() {
+    this._ensureStats();
+    const d = this._data;
+    const e = d.entities;
+    const target = num(this._state(e.dhw_target)?.state);
+    const storage = num(this._state(e.dhw_storage)?.state);
+    const lg = d.legionella;
+    const weekdays = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+    let share = "";
+    if (this._stats && !this._stats.error) {
+      const sum = (id) => this._dailySeries(id, "change").slice(-30).reduce((a, r) => a + r.v, 0);
+      const dhw = sum(e.gas_dhw_day);
+      const heat = sum(e.gas_heating_day);
+      share = `<div class="kpi"><div class="v">${fmt(dhw, 1)} m³</div><div class="l">gaz eau chaude sur 30 j${heat + dhw > 0 ? ` (${fmt((dhw / (heat + dhw)) * 100, 0)} % du total)` : ""}</div></div>`;
+    }
+    const reco = target != null && target > 50
+      ? `<div class="advice"><ha-icon icon="mdi:lightbulb-on-outline"></ha-icon><div>
+          Consigne à ${fmt(target, 0)} °C : 50 °C suffisent au quotidien et réduisent les pertes du ballon, à condition d'activer
+          la montée hebdomadaire à ${fmt(lg.temp, 0)} °C contre la légionelle (ci-dessous).
+          <div class="actions" style="margin-top:8px"><button class="btn primary" data-action="set-dhw" data-value="50">Passer à 50 °C</button></div></div></div>`
+      : "";
+    return `<div class="card"><h2>Eau chaude sanitaire</h2>
+        <div class="kpis">
+          <div class="kpi"><div class="v">${fmt(target, 0)} °C</div><div class="l">consigne</div></div>
+          <div class="kpi"><div class="v">${fmt(storage)} °C</div><div class="l">ballon actuellement</div></div>
+          ${share}
+        </div>${reco}</div>
+      <div class="card status">
+        <div class="state"><ha-icon icon="mdi:bacteria-outline"></ha-icon><div><b>Montée anti-légionelle hebdomadaire</b>
+          <small>Chaque ${weekdays[lg.weekday]} à ${esc(String(lg.time).slice(0, 5))} : ${fmt(lg.temp, 0)} °C pendant ${fmt(lg.minutes, 0)} min,
+          puis retour à la consigne${lg.running ? " · <b>en cours</b>" : lg.last ? ` · dernière le ${dateFr(lg.last)}` : ""}</small></div></div>
+        <div class="mode"><button class="toggle" role="switch" aria-checked="${lg.enabled}" aria-label="Montée anti-légionelle" data-action="toggle-legionella"></button>
+          <div>${lg.enabled ? "Activée" : "Désactivée"}</div></div>
+      </div>`;
+  }
+
+  // ------------------------------------------------------------------ graphique en colonnes (une série, par jour)
+  _columnChart(id, rows, value, color, opts = {}) {
+    if (!rows.length) return `<div class="chart" data-chart="${id}"><div class="empty">${esc(opts.empty || "Pas de données")}</div></div>`;
+    const w = this._widths[id] || 600;
+    const h = 220;
+    const m = { l: 44, r: 12, t: 10, b: 28 };
+    const iw = w - m.l - m.r;
+    const ih = h - m.t - m.b;
+    const t0 = rows[0].t;
+    const t1 = rows[rows.length - 1].t;
+    const span = Math.max(1, Math.round((t1 - t0) / DAY) + 1);
+    const slot = iw / span;
+    const bw = Math.max(2, Math.min(24, slot - 2));
+    const x = (t) => m.l + ((t - t0) / DAY + 0.5) * slot;
+    const max = Math.max(...rows.map(value)) || 1;
+    const ticks = niceTicks(0, max * 1.1, 4);
+    const yMax = ticks[ticks.length - 1] || max;
+    const y = (v) => m.t + (1 - v / yMax) * ih;
+    const every = Math.max(1, Math.ceil(span / Math.max(2, Math.floor(iw / 70))));
+    const labels = [];
+    for (let i = 0; i < span; i += every) labels.push(t0 + i * DAY);
+    const bar = (r) => {
+      const top = y(value(r));
+      const hh = Math.max(0, m.t + ih - top);
+      const rr = Math.min(4, bw / 2, hh);
+      const x0 = x(r.t) - bw / 2;
+      return `<path d="M${x0},${m.t + ih}V${top + rr}Q${x0},${top} ${x0 + rr},${top}H${x0 + bw - rr}Q${x0 + bw},${top} ${x0 + bw},${top + rr}V${m.t + ih}Z" fill="${color}"/>`;
+    };
+    const markers = (opts.markers || []).filter((t) => t >= t0 - DAY / 2 && t <= t1 + DAY);
+    this._charts[id] = {
+      f: { w, iw },
+      generic: (px) => {
+        const t = t0 + Math.floor((px - m.l) / slot) * DAY;
+        const r = rows.reduce((best, z) => (Math.abs(z.t - t) < Math.abs(best.t - t) ? z : best));
+        return { x: x(r.t), y: y(value(r)), html: opts.tip ? opts.tip(r) : fmt(value(r)) };
+      },
+    };
+    return `<div class="chart" data-chart="${id}">
+      <svg width="${w}" height="${h}" role="img">
+        ${ticks.map((v) => `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>
+          <text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${opts.fmtY ? opts.fmtY(v) : v}</text>`).join("")}
+        ${labels.map((t) => `<text x="${x(t)}" y="${h - 8}" text-anchor="middle">${dayLabel(t)}</text>`).join("")}
+        ${rows.map(bar).join("")}
+        ${markers.map((t) => `<line x1="${x(t)}" x2="${x(t)}" y1="${m.t}" y2="${m.t + ih}" stroke="${this._palette().s2}" stroke-width="2"/>`).join("")}
+        <g class="hover" style="display:none"><circle r="5" fill="var(--primary-text-color)" stroke="var(--card-background-color)" stroke-width="2"/></g>
+        <rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/>
+      </svg><div class="tooltip"></div></div>`;
+  }
+
 
   _controlCard(live, proposal) {
     const cur = this._edit || { slope: live.slope, shift: live.shift };
@@ -548,6 +932,8 @@ class HeatingCurvePanel extends HTMLElement {
       <svg width="${f.w}" height="${CHART_H}" role="img" aria-label="Courbe de chauffe : température de départ selon la température extérieure">
         ${limit < X_MAX ? `<rect x="${f.x(limit)}" y="${MARGIN.t}" width="${f.x(X_MAX) - f.x(limit)}" height="${f.ih}" fill="var(--divider-color)" opacity=".35"/>
           <text x="${f.x(X_MAX) - 6}" y="${MARGIN.t + 14}" text-anchor="end">hors chauffe</text>` : ""}
+        ${CONDENSING_MAX > yMin ? `<rect x="${MARGIN.l}" y="${y(Math.min(CONDENSING_MAX, yMax))}" width="${f.iw}" height="${y(yMin) - y(Math.min(CONDENSING_MAX, yMax))}" fill="${pal.s1}" opacity=".07"/>
+          <text x="${MARGIN.l + 6}" y="${y(Math.min(CONDENSING_MAX, yMax)) + 14}">condensation assurée (départ &lt; ${CONDENSING_MAX} °C)</text>` : ""}
         ${this._axes(f, y, niceTicks(yMin, yMax, 5), (v) => `${v}°`)}
         ${curves.map((c) => `<path d="${path(c)}" fill="none" stroke="${c.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" ${c.dash ? `stroke-dasharray="${c.dash}"` : ""}/>`).join("")}
         ${op ? `<circle cx="${f.x(live.outside)}" cy="${y(live.supply)}" r="5" fill="var(--primary-text-color)" stroke="var(--card-background-color)" stroke-width="2"/>` : ""}
@@ -567,7 +953,7 @@ class HeatingCurvePanel extends HTMLElement {
         et que la chaudière est en programme ${esc(s.programs.join(", "))} depuis au moins 2 h.</div></div>`;
     }
     const f = this._frame(id);
-    const pts = samples.map((p) => ({ outside: p.outside, error: clamp(p.room - p.target, -3, 3) }));
+    const pts = samples.map((p) => ({ outside: p.outside, error: clamp(sampleErr(p), -3, 3) }));
     const bins = binSamples(samples);
     const lim = Math.max(1, Math.ceil(Math.max(...pts.map((p) => Math.abs(p.error)), s.deadband)));
     const y = (v) => MARGIN.t + (1 - (v + lim) / (2 * lim)) * f.ih;
@@ -621,7 +1007,13 @@ class HeatingCurvePanel extends HTMLElement {
         const px = e.clientX - rect.left;
         const ot = clamp(X_MIN + ((px - MARGIN.l) / chart.f.iw) * (X_MAX - X_MIN), X_MIN, X_MAX);
         g.style.display = "";
-        if (id === "curve") {
+        if (chart.generic) {
+          const hit2 = chart.generic(px);
+          const c = g.querySelector("circle");
+          c.setAttribute("cx", hit2.x);
+          c.setAttribute("cy", hit2.y);
+          place(hit2.x, hit2.y, hit2.html);
+        } else if (id === "curve") {
           const r = Math.round(ot * 2) / 2;
           const dots = chart.dots(r);
           const line = g.querySelector(".cross");
@@ -650,4 +1042,4 @@ class HeatingCurvePanel extends HTMLElement {
   }
 }
 
-customElements.define("heating-curve-panel", HeatingCurvePanel);
+if (!customElements.get("heating-curve-panel")) customElements.define("heating-curve-panel", HeatingCurvePanel);

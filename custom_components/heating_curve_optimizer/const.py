@@ -18,6 +18,17 @@ CONF_MIN_SAMPLES = "min_samples"
 CONF_MAX_AGE_DAYS = "max_age_days"
 CONF_EVALUATE_AT = "evaluate_at"
 CONF_NOTIFY = "notify"
+CONF_ROOMS = "rooms"  # thermostats de pièces (Better Thermostat…) pour le mode multi-pièces
+CONF_WEATHER = "weather"
+CONF_SOLAR_FILTER = "solar_filter"
+CONF_SOLAR_CLOUD_MAX = "solar_cloud_max"
+CONF_SOLAR_MIN_ELEVATION = "solar_min_elevation"
+CONF_MIN_PRESSURE = "min_pressure"
+CONF_SHORT_CYCLE_MINUTES = "short_cycle_minutes"
+CONF_LEGIONELLA_WEEKDAY = "legionella_weekday"  # 0 = lundi … 6 = dimanche
+CONF_LEGIONELLA_TIME = "legionella_time"
+CONF_LEGIONELLA_TEMP = "legionella_temp"
+CONF_LEGIONELLA_MINUTES = "legionella_minutes"
 
 # Les clés de réglage portent le nom des champs de heating_curve.Settings
 TUNING_KEYS = (
@@ -41,6 +52,17 @@ DEFAULT_OPTIONS = {
     CONF_MAX_AGE_DAYS: 10,
     CONF_EVALUATE_AT: "04:00:00",
     CONF_NOTIFY: "",
+    CONF_ROOMS: [],
+    CONF_WEATHER: "",
+    CONF_SOLAR_FILTER: True,
+    CONF_SOLAR_CLOUD_MAX: 60.0,
+    CONF_SOLAR_MIN_ELEVATION: 10.0,
+    CONF_MIN_PRESSURE: 1.0,
+    CONF_SHORT_CYCLE_MINUTES: 10.0,
+    CONF_LEGIONELLA_WEEKDAY: "6",
+    CONF_LEGIONELLA_TIME: "14:00:00",
+    CONF_LEGIONELLA_TEMP: 60.0,
+    CONF_LEGIONELLA_MINUTES: 90.0,
     "damping": 0.5,
     "max_shift_step": 3.0,
     "max_slope_step": 0.1,

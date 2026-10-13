@@ -10,7 +10,7 @@ from .const import DOMAIN
 from .optimizer import HeatingCurveOptimizer
 from .panel import async_register_panel, async_unregister_panel
 
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BUTTON]
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BUTTON, Platform.BINARY_SENSOR]
 
 type OptimizerConfigEntry = ConfigEntry[HeatingCurveOptimizer]
 
