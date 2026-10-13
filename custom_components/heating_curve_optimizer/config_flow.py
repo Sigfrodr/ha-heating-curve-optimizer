@@ -45,6 +45,9 @@ from .const import (
     CONF_STANDBY_TEMP,
     CONF_SUN_ANTICIPATION,
     CONF_WEEKLY_REPORT,
+    CONF_DAILY_CHECK_TIME,
+    CONF_MAINTENANCE_MONTHS,
+    CONF_OVERCONSUMPTION_RATIO,
     DEFAULT_OPTIONS,
     DOMAIN,
 )
@@ -162,6 +165,9 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
             "alerts": {
                 vol.Required(CONF_MIN_PRESSURE): _number(0.3, 2.5, 0.1, "bar"),
                 vol.Required(CONF_SHORT_CYCLE_MINUTES): _number(2, 30, 1, "min"),
+                vol.Required(CONF_OVERCONSUMPTION_RATIO): _number(1.1, 3, 0.05),
+                vol.Required(CONF_MAINTENANCE_MONTHS): _number(6, 36, 1, "mois"),
+                vol.Required(CONF_DAILY_CHECK_TIME): selector.TimeSelector(),
             },
             "dhw": {
                 vol.Required(CONF_LEGIONELLA_WEEKDAY): selector.SelectSelector(

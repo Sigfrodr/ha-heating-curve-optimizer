@@ -38,7 +38,13 @@ CONF_WEEKLY_REPORT = "weekly_report"
 CONF_REPORT_WEEKDAY = "report_weekday"
 CONF_REPORT_TIME = "report_time"
 
+CONF_MAINTENANCE_MONTHS = "maintenance_months"
+CONF_OVERCONSUMPTION_RATIO = "overconsumption_ratio"
+CONF_DAILY_CHECK_TIME = "daily_check_time"
+
 CONTROL_MODES = ("off", "simulation", "active")
+NOTIFY_ACTION_APPLY = "HCO_APPLY"
+NOTIFY_ACTION_IGNORE = "HCO_IGNORE"
 
 # Les clés de réglage portent le nom des champs de heating_curve.Settings
 TUNING_KEYS = (
@@ -81,6 +87,9 @@ DEFAULT_OPTIONS = {
     CONF_WEEKLY_REPORT: True,
     CONF_REPORT_WEEKDAY: "0",
     CONF_REPORT_TIME: "08:00:00",
+    CONF_MAINTENANCE_MONTHS: 12.0,
+    CONF_OVERCONSUMPTION_RATIO: 1.3,
+    CONF_DAILY_CHECK_TIME: "06:30:00",
     "damping": 0.5,
     "max_shift_step": 3.0,
     "max_slope_step": 0.1,

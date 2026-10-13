@@ -183,6 +183,12 @@ tr:last-child td { border-bottom:none; }
 .sched-cells .cell { height:26px; background:var(--secondary-background-color); cursor:pointer; }
 .sched-cells .cell:nth-child(6n+1) { margin-left:1px; }
 .sched-cells .cell.on { background:var(--primary-color); }
+table.rooms td.stepper { padding:4px 8px; }
+table.rooms .box { display:inline-flex; align-items:center; border:1px solid var(--divider-color); border-radius:8px; overflow:hidden; }
+table.rooms .box button { width:30px; height:30px; border:none; background:transparent; color:var(--primary-color); font-size:18px; cursor:pointer; }
+table.rooms output { min-width:56px; text-align:center; }
+input[type="date"] { font:inherit; padding:6px 8px; border-radius:8px; border:1px solid var(--divider-color);
+  background:var(--card-background-color); color:var(--primary-text-color); }
 .sched-cells .cell:hover { outline:1px solid var(--primary-text-color); outline-offset:-1px; }
 .bar { display:inline-block; width:120px; height:8px; border-radius:4px; background:var(--secondary-background-color); margin-right:8px; vertical-align:middle; overflow:hidden; }
 .bar > div { height:100%; border-radius:4px; }
@@ -401,6 +407,47 @@ class HeatingCurvePanel extends HTMLElement {
       for (let d = 1; d < 5; d++) this._draft[d] = [...this._draft[0]];
       this._draftDirty = true;
       this._render();
+    } else if (a === "room-enable") {
+      const r = this._roomDraft[el.dataset.room];
+      r.enabled = !r.enabled;
+      this._roomDirty = true;
+      this._render();
+    } else if (a === "room-temp") {
+      const r = this._roomDraft[el.dataset.room];
+      r[el.dataset.key] = clamp(r[el.dataset.key] + +el.dataset.delta, 5, 28);
+      this._roomDirty = true;
+      this._render();
+    } else if (a === "save-rooms") {
+      try {
+        this._data = await this._hass.callWS({ type: `${DOMAIN}/set_room_targets`, targets: this._roomDraft });
+        this._roomDraft = null;
+        this._roomDirty = false;
+        this._toast("Consignes des pièces enregistrées");
+      } catch (err) {
+        this._toast(`Échec : ${err?.message || err}`);
+      }
+      this._render();
+    } else if (a === "reset-rooms") {
+      this._roomDraft = null;
+      this._roomDirty = false;
+      this._render();
+    } else if (a === "load-computed") {
+      const c = this._data.computed_curve;
+      if (c) this._edit = { slope: c.slope, shift: c.shift };
+      this._render();
+    } else if (a === "maintenance-done") {
+      const input = this.shadowRoot.querySelector("#maint-date");
+      const date = input?.value || undefined;
+      if (!confirm(`Enregistrer un entretien ${date ? `au ${date}` : "aujourd'hui"} ?`)) return;
+      this._data = await this._hass.callWS({ type: `${DOMAIN}/set_maintenance`, ...(date ? { date } : {}) });
+      this._toast("Entretien enregistré");
+      this._render();
+    } else if (a === "use-limit") {
+      const v = parseFloat(el.dataset.value);
+      if (!confirm(`Ne plus collecter de mesures au-dessus de ${fmt(v, 1)} °C extérieur ?`)) return;
+      await this._hass.callWS({ type: `${DOMAIN}/set_heating_limit`, value: v });
+      this._toast("Seuil enregistré (l'intégration se recharge)");
+      setTimeout(() => this._fetch(), 3000);
     } else if (a === "send-report") {
       try {
         await this._hass.callWS({ type: `${DOMAIN}/weekly_report`, send: true });
@@ -751,7 +798,8 @@ class HeatingCurvePanel extends HTMLElement {
           empty: "Pas encore assez de jours de chauffe (au moins 2 degrés-jours par jour).",
         })}
         <p class="note" style="margin-top:8px">Un degré-jour (DJU) mesure le besoin de chauffage : ${DJU_BASE} °C moins la température extérieure moyenne du jour.
-          Diviser le gaz par les DJU compare des périodes de météo différente : si le ratio baisse après un ajustement, l'économie est réelle.</p>`;
+          Diviser le gaz par les DJU compare des périodes de météo différente : si le ratio baisse après un ajustement, l'économie est réelle.</p>
+        <p class="note">Tableau Énergie de Home Assistant : sources gaz = consommations ViCare du jour, prix = entité « Prix du gaz » de l'optimiseur.</p>`;
     }
     return `<div class="card"><h2>Consommation corrigée de la météo</h2>
         <p class="sub">Gaz de chauffage par degré-jour sur 60 jours
@@ -821,7 +869,39 @@ class HeatingCurvePanel extends HTMLElement {
         <div class="legend"><span><i class="key-dot" style="background:${pal.s1}"></i>Démarrages du brûleur par jour (30 j)</span></div>
         ${daily}
         <div class="advice"><ha-icon icon="mdi:lightbulb-on-outline"></ha-icon><div>${advice}</div></div>
-      </div>`;
+      </div>
+      ${this._pressureCard(pal)}
+      ${this._maintenanceCard()}`;
+  }
+
+  _pressureCard(pal) {
+    const d = this._data;
+    const days = Object.entries(d.pressure_days || {}).map(([day, v]) => ({ t: new Date(`${day}T12:00:00`).getTime(), v }));
+    const trend = d.pressure_trend;
+    return `<div class="card"><h2>Pression d'eau</h2>
+      <p class="sub">Pression minimale de chaque jour. Une baisse lente sur plusieurs semaines signale une petite fuite ou un vase d'expansion à regonfler.</p>
+      <div class="kpis"><div class="kpi"><div class="v">${trend != null ? `${fmt(trend, 2, true)} bar` : "—"}</div><div class="l">par semaine (tendance sur 4 semaines)</div></div></div>
+      <div class="legend"><span><i class="key-dot" style="background:${pal.s1}"></i>Pression minimale du jour (bar)</span></div>
+      ${this._columnChart("pressure", days.slice(-30), (x) => x.v, pal.s1, {
+        fmtY: (v) => fmt(v, 1),
+        tip: (x) => `<b>${dayLabel(x.t)}</b><div>${fmt(x.v, 2)} bar au plus bas</div>`,
+        empty: "La pression est relevée chaque jour à partir de maintenant.",
+      })}</div>`;
+  }
+
+  _maintenanceCard() {
+    const m = this._data.maintenance || {};
+    const due = m.due ? new Date(`${m.due}T12:00:00`).toLocaleDateString("fr-FR") : null;
+    const last = m.last ? new Date(`${m.last}T12:00:00`).toLocaleDateString("fr-FR") : null;
+    return `<div class="card"><h2>Entretien annuel</h2>
+      <p class="sub">Obligatoire chaque année en France pour une chaudière gaz. Un rappel arrive 30 jours avant l'échéance.</p>
+      <div class="kpis">
+        <div class="kpi"><div class="v">${last || "—"}</div><div class="l">dernier entretien</div></div>
+        <div class="kpi"><div class="v">${due || "—"}</div><div class="l">${m.days_left != null ? (m.days_left < 0 ? `dépassé de ${-m.days_left} j` : `dans ${m.days_left} j`) : "prochaine échéance"}</div></div>
+        <div class="kpi"><div class="v">${m.burner_hours_since != null ? `${fmt(m.burner_hours_since, 0)} h` : "—"}</div><div class="l">de brûleur depuis</div></div>
+      </div>
+      <div class="actions"><input type="date" id="maint-date" aria-label="Date de l'entretien">
+        <button class="btn" data-action="maintenance-done">Enregistrer l'entretien</button></div></div>`;
   }
 
   // ------------------------------------------------------------------ onglet Eau chaude
@@ -946,7 +1026,34 @@ class HeatingCurvePanel extends HTMLElement {
           <button class="btn" data-action="import-trv" ${p.trv_suggestion ? "" : "disabled"}>Importer depuis les têtes thermostatiques</button>
           <button class="btn" data-action="copy-monday">Copier le lundi sur les jours ouvrés</button>
         </div></div>
+      ${this._roomTargetsCard()}
       <div class="card"><h2>Décisions des dernières 48 h</h2>${timeline}</div>`;
+  }
+
+  _roomTargetsCard() {
+    const p = this._data.pilot;
+    const rooms = Object.keys(p.room_targets || {});
+    if (!rooms.length) return "";
+    if (!this._roomDraft) this._roomDraft = JSON.parse(JSON.stringify(p.room_targets));
+    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const planned = p.state?.rooms || {};
+    const step = (id, key) => `<span class="box">
+        <button data-action="room-temp" data-room="${id}" data-key="${key}" data-delta="-0.5" aria-label="Diminuer">−</button>
+        <output>${fmt(this._roomDraft[id][key], 1)} °C</output>
+        <button data-action="room-temp" data-room="${id}" data-key="${key}" data-delta="0.5" aria-label="Augmenter">+</button></span>`;
+    return `<div class="card"><h2>Consignes des pièces</h2>
+      <p class="sub">Les pièces cochées suivent le planning de la maison : consigne confort pendant les périodes bleues, réduite sinon.
+        Désactive les autres plannings de ces pièces (têtes, Scheduler) pour éviter qu'ils se contredisent.</p>
+      <div class="table-wrap"><table class="rooms"><thead><tr><th>Pièce</th><th>Suit le planning</th><th>Confort</th><th>Réduit</th><th>Consigne prévue</th></tr></thead>
+      <tbody>${rooms.map((id) => {
+        const t = this._roomDraft[id];
+        return `<tr><td>${esc(name(id))}</td>
+          <td><button class="toggle" role="switch" aria-checked="${t.enabled}" aria-label="Suit le planning" data-action="room-enable" data-room="${id}"></button></td>
+          <td class="stepper">${step(id, "comfort")}</td><td class="stepper">${step(id, "reduced")}</td>
+          <td>${planned[id] != null ? `${fmt(planned[id], 1)} °C${p.mode === "active" ? "" : " (simulé)"}` : "—"}</td></tr>`;
+      }).join("")}</tbody></table></div>
+      <div class="actions" style="margin-top:12px"><button class="btn primary" data-action="save-rooms" ${this._roomDirty ? "" : "disabled"}>Enregistrer</button>
+        <button class="btn" data-action="reset-rooms" ${this._roomDirty ? "" : "disabled"}>Annuler</button></div></div>`;
   }
 
   _timeline(log, colors, labels) {
@@ -1026,10 +1133,11 @@ class HeatingCurvePanel extends HTMLElement {
     const name = (id) => this._state(id)?.attributes.friendly_name || id;
     const seasons = Object.entries(g.thermal || {});
     const thermal = seasons.length
-      ? `<div class="table-wrap"><table><thead><tr><th>Saison de chauffe</th><th>Déperditions</th><th>Talon</th><th>Fiabilité (R²)</th><th>Jours</th></tr></thead>
+      ? `<div class="table-wrap"><table><thead><tr><th>Saison de chauffe</th><th>Déperditions</th><th>Talon</th><th>Fiabilité (R²)</th><th>Jours</th><th>Seuil de chauffe</th></tr></thead>
         <tbody>${seasons.map(([season, t]) => t.loss_w_per_k != null
-          ? `<tr><td>${esc(season)}</td><td><b>${fmt(t.loss_w_per_k, 0)} W/K</b></td><td>${fmt(t.base_kwh_per_day, 1)} kWh/j</td><td>${fmt(t.r2, 2)}</td><td>${t.days}</td></tr>`
-          : `<tr><td>${esc(season)}</td><td colspan="4">pas assez de jours de chauffe (${t.days})</td></tr>`).join("")}</tbody></table></div>`
+          ? `<tr><td>${esc(season)}</td><td><b>${fmt(t.loss_w_per_k, 0)} W/K</b></td><td>${fmt(t.base_kwh_per_day, 1)} kWh/j</td><td>${fmt(t.r2, 2)}</td><td>${t.days}</td>
+            <td>${t.heating_limit != null ? `${fmt(t.heating_limit, 1)} °C <button class="btn" style="padding:2px 8px" data-action="use-limit" data-value="${t.heating_limit}">Utiliser</button>` : "—"}</td></tr>`
+          : `<tr><td>${esc(season)}</td><td colspan="5">pas assez de jours de chauffe (${t.days})</td></tr>`).join("")}</tbody></table></div>`
       : `<div class="empty">Pas encore de statistiques de gaz.</div>`;
     const rooms = g.rooms || [];
     const maxRel = Math.max(1.8, ...rooms.map((r) => r.relative));
@@ -1041,7 +1149,11 @@ class HeatingCurvePanel extends HTMLElement {
       : `<div class="empty">Il faut au moins deux pièces suivies avec Better Thermostat (onglet Pièces).</div>`;
     return `<div class="card"><h2>Bilan thermique de la maison</h2>
         <p class="sub">Déperditions estimées à partir du gaz consommé et de l'écart intérieur / extérieur, jour par jour (rendement supposé 95 %).
-          Moins de W/K = maison mieux isolée : compare les saisons avant et après des travaux.</p>${thermal}</div>
+          Moins de W/K = maison mieux isolée : compare les saisons avant et après des travaux.
+          Le seuil de chauffe est la température extérieure au-dessus de laquelle les apports gratuits (soleil, occupants, appareils) suffisent.</p>${thermal}
+        ${(this._data.overconsumption_log || []).length ? `<h2 style="margin-top:16px">Jours de surconsommation</h2>
+          <div class="table-wrap"><table><thead><tr><th>Jour</th><th>Consommé</th><th>Attendu pour la météo</th></tr></thead>
+          <tbody>${[...this._data.overconsumption_log].reverse().map((o) => `<tr><td>${dayLabel(o.t * 1000)}</td><td>${fmt(o.kwh, 0)} kWh</td><td>${fmt(o.expected, 0)} kWh</td></tr>`).join("")}</tbody></table></div>` : ""}</div>
       <div class="card"><h2>Équilibrage des radiateurs</h2>
         <p class="sub">Vitesse de chauffe apprise par Better Thermostat pour chaque pièce, comparée à la médiane. Un radiateur qui chauffe beaucoup plus vite
           que les autres « vole » l'eau chaude aux pièces lentes.</p>${balance}</div>
@@ -1146,6 +1258,13 @@ class HeatingCurvePanel extends HTMLElement {
         </div>
         <p class="note">Un réglage appliqué remet à zéro les mesures en cours : elles décrivaient l'ancienne courbe.</p>
         ${proposalBlock}
+        ${this._data.computed_curve ? `<div class="proposal">
+          <p><b>Courbe calculée</b> <small>· modèle physique des radiateurs</small></p>
+          <p>Pente <b>${fmt(this._data.computed_curve.slope)}</b>, décalage <b>${fmt(this._data.computed_curve.shift, 0, true)}</b><br>
+            <small>Calculée d'un coup à partir des mesures en cours, extrapolée aux grands froids
+            (écart au modèle ${fmt(this._data.computed_curve.rms, 1)} K). À vérifier avant d'appliquer.</small></p>
+          <div class="actions"><button class="btn" data-action="load-computed">Voir sur le graphique</button></div>
+        </div>` : ""}
       </div>`;
   }
 

@@ -50,6 +50,11 @@ from .const import (
     CONF_REPORT_TIME,
     CONF_REPORT_WEEKDAY,
     CONF_WEEKLY_REPORT,
+    CONF_DAILY_CHECK_TIME,
+    CONF_MAINTENANCE_MONTHS,
+    CONF_OVERCONSUMPTION_RATIO,
+    NOTIFY_ACTION_APPLY,
+    NOTIFY_ACTION_IGNORE,
     DOMAIN,
     TUNING_KEYS,
 )
@@ -64,7 +69,16 @@ from .analysis import (
     recovery_advice,
 )
 from .control import balance_rooms, gas_cost, thermal_balance, weekly_report
-from .heating_curve import Proposal, Sample, Settings, compute_proposal
+from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
+from .insights import (
+    expected_gas_kwh,
+    heating_limit,
+    maintenance_status,
+    overconsumption,
+    physical_curve,
+    pressure_trend,
+    slow_leak,
+)
 from .pilot import HeatingPilot
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,6 +125,10 @@ class HeatingCurveOptimizer:
             "legionella": False,
             "legionella_restore": None,
             "legionella_last": None,
+            "daily_alerts": {},
+            "pressure_days": {},
+            "maintenance": None,
+            "overconsumption_log": [],
         }
         self._unavailable_since: float | None = None
         self.pilot = HeatingPilot(self)
@@ -151,6 +169,15 @@ class HeatingCurveOptimizer:
             async_track_time_change(
                 self.hass, self._async_report_tick, hour=hour, minute=minute, second=second
             )
+        )
+        hour, minute, second = (int(x) for x in str(self.cfg[CONF_DAILY_CHECK_TIME]).split(":"))
+        self._unsubs.append(
+            async_track_time_change(
+                self.hass, self._async_daily_checks, hour=hour, minute=minute, second=second
+            )
+        )
+        self._unsubs.append(
+            self.hass.bus.async_listen("mobile_app_notification_action", self._async_on_notify_action)
         )
         await self.pilot.async_start()
 
@@ -296,6 +323,14 @@ class HeatingCurveOptimizer:
             self._unavailable_since = self._unavailable_since or now
         else:
             self._unavailable_since = None
+        pressure = self._entity_float(self._device_entity("sensor", "supply_pressure"))
+        if pressure is not None:
+            day = dt_util.now().date().isoformat()
+            days = self.data["pressure_days"]
+            if day not in days or pressure < days[day]:
+                days[day] = pressure
+                # 60 jours glissants
+                self.data["pressure_days"] = dict(sorted(days.items())[-60:])
         frost = self.hass.states.get(self._device_entity("binary_sensor", "frost_protection") or "")
         alerts = evaluate_alerts(
             AlertInputs(
@@ -308,6 +343,7 @@ class HeatingCurveOptimizer:
                 short_cycle_minutes=float(self.cfg[CONF_SHORT_CYCLE_MINUTES]),
             )
         )
+        alerts.update(self.data["daily_alerts"])
         previous = self.data["alerts"]
         for code, message in alerts.items():
             if code not in previous:
@@ -433,7 +469,13 @@ class HeatingCurveOptimizer:
         if not proposal.changed:
             self._set_status("évalué, rien à changer")
         elif not self.auto:
-            await self._async_notify("Courbe de chauffe : proposition", summary)
+            await self._async_notify(
+                "Courbe de chauffe : proposition", summary,
+                actions=[
+                    {"action": NOTIFY_ACTION_APPLY, "title": "Appliquer"},
+                    {"action": NOTIFY_ACTION_IGNORE, "title": "Ignorer"},
+                ],
+            )
             self._set_status("proposition (simulation)")
         else:
             await self._async_apply(proposal, summary)
@@ -540,8 +582,15 @@ class HeatingCurveOptimizer:
             seasons.setdefault(f"{year}-{year + 1}", []).append((gas * kwh_per_m3, outside))
         balances = {}
         for season, days in sorted(seasons.items()):
-            tb = thermal_balance(days, indoor=float(self.pilot.temps["comfort"]))
-            balances[season] = tb.__dict__ if tb else {"days": len([d for d in days if d[0] > 0])}
+            indoor = float(self.pilot.temps["comfort"])
+            tb = thermal_balance(days, indoor=indoor)
+            if tb:
+                balances[season] = {
+                    **tb.__dict__,
+                    "heating_limit": heating_limit(tb.loss_w_per_k, tb.base_kwh_per_day, indoor),
+                }
+            else:
+                balances[season] = {"days": len([d for d in days if d[0] > 0])}
         rooms = []
         for entity_id in self.cfg.get(CONF_ROOMS) or []:
             st = self.hass.states.get(entity_id)
@@ -626,6 +675,15 @@ class HeatingCurveOptimizer:
                 else None
             ),
             "pilot": self.pilot.snapshot(),
+            "computed_curve": self.computed_curve(),
+            "pressure_trend": self.pressure_trend,
+            "pressure_days": self.data["pressure_days"],
+            "maintenance": {
+                **{k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                   for k, v in self.maintenance.__dict__.items()},
+                "months": int(self.cfg[CONF_MAINTENANCE_MONTHS]),
+            },
+            "overconsumption_log": self.data["overconsumption_log"],
             "costs": {
                 "gas_price": float(self.cfg[CONF_GAS_PRICE]),
                 "kwh_per_m3": float(self.cfg[CONF_KWH_PER_M3]),
@@ -729,12 +787,128 @@ class HeatingCurveOptimizer:
             "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
         )
 
-    async def _async_notify(self, title: str, message: str, suffix: str = "") -> None:
+    async def _async_notify(
+        self, title: str, message: str, suffix: str = "", actions: list[dict] | None = None
+    ) -> None:
         notification_id = f"{DOMAIN}_{self.entry.entry_id}" + (f"_{suffix}" if suffix else "")
         persistent_notification.async_create(
             self.hass, message, title=title, notification_id=notification_id
         )
         if service := self.cfg.get(CONF_NOTIFY):
-            await self.hass.services.async_call(
-                "notify", service.removeprefix("notify."), {"title": title, "message": message}
+            payload = {"title": title, "message": message}
+            if actions and service.removeprefix("notify.").startswith("mobile_app_"):
+                payload["data"] = {"actions": actions, "tag": notification_id}
+            await self.hass.services.async_call("notify", service.removeprefix("notify."), payload)
+
+    async def _async_on_notify_action(self, event) -> None:
+        """Bouton « Appliquer » / « Ignorer » d'une notification de l'appli mobile."""
+        action = event.data.get("action")
+        if action == NOTIFY_ACTION_APPLY:
+            proposal = self.data["last_proposal"]
+            if not proposal or proposal["t"] <= self.data["last_change"]:
+                return
+            await self.async_set_curve(
+                proposal["new_slope"], proposal["new_shift"], "proposition validée depuis le téléphone"
             )
+        elif action == NOTIFY_ACTION_IGNORE:
+            persistent_notification.async_dismiss(self.hass, f"{DOMAIN}_{self.entry.entry_id}")
+
+    # ------------------------------------------------------- contrôles quotidiens
+
+    async def _async_daily_checks(self, _now=None) -> None:
+        """Surconsommation de la veille, baisse lente de pression, échéance d'entretien."""
+        alerts: dict[str, str] = {}
+        try:
+            alerts.update(await self._async_check_overconsumption())
+        except Exception as err:  # noqa: BLE001  statistiques indisponibles
+            _LOGGER.debug("Contrôle de consommation impossible : %s", err)
+        trend = self.pressure_trend
+        if slow_leak(trend):
+            alerts["slow_leak"] = (
+                f"La pression baisse lentement ({trend:+.2f} bar/semaine sur 4 semaines) : "
+                "petite fuite ou vase d'expansion à vérifier."
+            )
+        m = self.maintenance
+        if m.days_left is not None and m.days_left <= 30:
+            alerts["maintenance"] = (
+                f"Entretien annuel de la chaudière {'dépassé' if m.days_left < 0 else 'à prévoir'} "
+                f"(échéance {m.due.strftime('%d/%m/%Y')})."
+            )
+        self.data["daily_alerts"] = alerts
+        self._save()
+
+    async def _async_check_overconsumption(self) -> dict[str, str]:
+        diag = await self.async_diagnostics()
+        model = next(
+            (t for _, t in sorted(diag["thermal"].items(), reverse=True)
+             if t.get("loss_w_per_k") and t.get("r2", 0) >= 0.5 and t.get("days", 0) >= 15),
+            None,
+        )
+        rows = await self.async_daily_stats(2)
+        if model is None or len(rows) < 2:
+            return {}
+        start, gas, outside = rows[-2]  # veille complète
+        if gas is None or outside is None:
+            return {}
+        kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
+        indoor = float(self.pilot.temps["comfort"])
+        expected = expected_gas_kwh(model["loss_w_per_k"], model["base_kwh_per_day"], indoor, outside)
+        excess = overconsumption(gas * kwh_per_m3, expected, float(self.cfg[CONF_OVERCONSUMPTION_RATIO]))
+        if excess is None:
+            return {}
+        self.data["overconsumption_log"] = (self.data["overconsumption_log"] + [
+            {"t": _ts(start), "kwh": round(gas * kwh_per_m3, 1), "expected": round(expected, 1)}
+        ])[-30:]
+        return {"overconsumption": (
+            f"Consommation d'hier {excess:.0f} % au-dessus de la normale pour la météo "
+            f"({gas * kwh_per_m3:.0f} kWh au lieu de {expected:.0f}) : fenêtre ouverte, réglage, encrassement ?"
+        )}
+
+    @property
+    def pressure_trend(self) -> float | None:
+        from datetime import date as _date  # noqa: PLC0415
+
+        pts = [
+            (_date.fromisoformat(d).toordinal() * 86400.0, p)
+            for d, p in sorted(self.data["pressure_days"].items())[-28:]
+        ]
+        return pressure_trend(pts)
+
+    @property
+    def maintenance(self):
+        from datetime import date as _date  # noqa: PLC0415
+
+        m = self.data["maintenance"] or {}
+        last = _date.fromisoformat(m["date"]) if m.get("date") else None
+        hours_now = self._entity_float(self._device_entity("sensor", "burner_hours"))
+        return maintenance_status(
+            last, dt_util.now().date(), int(self.cfg[CONF_MAINTENANCE_MONTHS]), hours_now, m.get("hours")
+        )
+
+    async def async_set_maintenance(self, day: str | None = None) -> None:
+        """Enregistre un entretien (aujourd'hui par défaut) avec le compteur d'heures brûleur."""
+        self.data["maintenance"] = {
+            "date": day or dt_util.now().date().isoformat(),
+            "hours": self._entity_float(self._device_entity("sensor", "burner_hours")),
+        }
+        self.data["daily_alerts"].pop("maintenance", None)
+        self._save()
+        self._set_status(self.status)
+
+    # ------------------------------------------------------- courbe calculée et seuil
+
+    def computed_curve(self) -> dict | None:
+        slope, shift = self._current_curve()
+        samples = [
+            Sample(outside=s["outside"], room=s["target"] + _sample_error(s), target=s["target"])
+            for s in self.data["samples"]
+        ]
+        bins = bin_samples(samples, self.settings)
+        if slope is None or shift is None or not bins:
+            return None
+        cc = physical_curve(bins, slope, shift)
+        return cc.__dict__ if cc else None
+
+    async def async_set_heating_limit(self, value: float) -> None:
+        options = {**self.entry.options, CONF_HEATING_LIMIT: float(value)}
+        self.hass.config_entries.async_update_entry(self.entry, options=options)

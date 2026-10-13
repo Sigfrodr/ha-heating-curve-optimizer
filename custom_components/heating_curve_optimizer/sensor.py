@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from datetime import datetime
+
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import UnitOfTemperature, UnitOfTime
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import OptimizerConfigEntry
@@ -23,6 +27,9 @@ async def async_setup_entry(
             BurnerStartsSensor(optimizer),
             CycleLengthSensor(optimizer),
             PilotSetpointSensor(optimizer),
+            GasPriceSensor(optimizer),
+            GasCostTodaySensor(optimizer, "heating"),
+            GasCostTodaySensor(optimizer, "dhw"),
         ]
     )
 
@@ -122,3 +129,65 @@ class PilotSetpointSensor(OptimizerEntity, SensorEntity):
             "mode": state.get("mode"),
             "raison": state.get("reason"),
         }
+
+
+
+class GasPriceSensor(OptimizerEntity, SensorEntity):
+    """Prix du m³ de gaz : à choisir comme « entité de prix » dans le tableau Énergie."""
+
+    _attr_icon = "mdi:currency-eur"
+    _attr_native_unit_of_measurement = "EUR/m³"
+    _attr_suggested_display_precision = 3
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "gas_price", "Prix du gaz")
+
+    @property
+    def native_value(self) -> float:
+        cfg = self.optimizer.cfg
+        return round(float(cfg["gas_price"]) * float(cfg["kwh_per_m3"]), 4)
+
+
+class GasCostTodaySensor(OptimizerEntity, SensorEntity):
+    """Coût du gaz consommé aujourd'hui (chauffage ou eau chaude), remis à zéro chaque jour."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "EUR"
+    _attr_suggested_display_precision = 2
+
+    KEYS = {
+        "heating": ("gas_summary_consumption_heating_currentday", "Coût du gaz chauffage (aujourd'hui)"),
+        "dhw": ("hotwater_gas_summary_consumption_heating_currentday", "Coût du gaz eau chaude (aujourd'hui)"),
+    }
+
+    def __init__(self, optimizer, kind: str) -> None:
+        self._source_key, name = self.KEYS[kind]
+        super().__init__(optimizer, f"gas_cost_today_{kind}", name)
+
+    @property
+    def _source(self) -> str | None:
+        return self.optimizer._device_entity("sensor", self._source_key)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self._source:
+            self.async_on_remove(
+                async_track_state_change_event(self.hass, [self._source], self._on_source_change)
+            )
+
+    @callback
+    def _on_source_change(self, _event) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def last_reset(self) -> datetime:
+        return dt_util.start_of_local_day()
+
+    @property
+    def native_value(self) -> float | None:
+        m3 = self.optimizer._entity_float(self._source)
+        if m3 is None:
+            return None
+        cfg = self.optimizer.cfg
+        return round(m3 * float(cfg["kwh_per_m3"]) * float(cfg["gas_price"]), 2)

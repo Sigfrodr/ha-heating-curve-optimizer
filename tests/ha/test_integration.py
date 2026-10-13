@@ -47,7 +47,8 @@ async def test_options_flow_flattens_sections(hass: HomeAssistant, vicare):
             "evaluate_at": "04:00:00",
             "rooms_weather": {"rooms": ["climate.cuisine"], "solar_filter": True,
                               "solar_cloud_max": 60, "solar_min_elevation": 10},
-            "alerts": {"min_pressure": 1.0, "short_cycle_minutes": 10},
+            "alerts": {"min_pressure": 1.0, "short_cycle_minutes": 10, "overconsumption_ratio": 1.3,
+                       "maintenance_months": 12, "daily_check_time": "06:30:00"},
             "pilot": {"standby_temp": 15, "demand_delay_minutes": 20, "sun_anticipation": True},
             "costs_report": {"gas_price": 0.11, "kwh_per_m3": 11.0, "weekly_report": True,
                              "report_weekday": "0", "report_time": "08:00:00"},
@@ -71,7 +72,7 @@ async def test_entities_created(hass: HomeAssistant, loaded_entry):
     ids = {s.entity_id for s in hass.states.async_all() if s.entity_id.startswith(
         ("sensor.optimiseur", "switch.optimiseur", "button.optimiseur", "binary_sensor.optimiseur",
          "select.optimiseur"))}
-    assert len(ids) == 11
+    assert len(ids) == 15
     assert hass.states.get("switch.optimiseur_courbe_de_chauffe_ajustement_automatique").state == "off"
 
 

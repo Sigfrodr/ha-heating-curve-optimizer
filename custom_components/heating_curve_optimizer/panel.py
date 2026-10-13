@@ -41,6 +41,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_set_schedule)
         websocket_api.async_register_command(hass, ws_diagnostics)
         websocket_api.async_register_command(hass, ws_weekly_report)
+        websocket_api.async_register_command(hass, ws_set_room_targets)
+        websocket_api.async_register_command(hass, ws_set_maintenance)
+        websocket_api.async_register_command(hass, ws_set_heating_limit)
         # Carte de tableau de bord, chargée sur toutes les pages
         frontend.add_extra_js_url(hass, f"{STATIC_URL}/{CARD_COMPONENT}.js?v={version}")
     await panel_custom.async_register_panel(
@@ -194,5 +197,45 @@ async def ws_weekly_report(hass: HomeAssistant, connection, msg: dict) -> None:
     async def run(o):
         text = await (o.async_send_weekly_report() if msg["send"] else o.async_weekly_report_text())
         return {"text": text}
+
+    await _run(hass, connection, msg, run)
+
+
+ROOM_TARGET = vol.Schema({
+    vol.Required("enabled"): bool,
+    vol.Required("comfort"): vol.All(vol.Coerce(float), vol.Range(min=5, max=28)),
+    vol.Required("reduced"): vol.All(vol.Coerce(float), vol.Range(min=5, max=28)),
+})
+
+
+@_command("set_room_targets", {vol.Required("targets"): {str: ROOM_TARGET}})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_room_targets(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        await o.pilot.async_set_room_targets(msg["targets"])
+        return o.snapshot()
+
+    await _run(hass, connection, msg, run)
+
+
+@_command("set_maintenance", {vol.Optional("date"): vol.Match(r"^\d{4}-\d{2}-\d{2}$")})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_maintenance(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        await o.async_set_maintenance(msg.get("date"))
+        return o.snapshot()
+
+    await _run(hass, connection, msg, run)
+
+
+@_command("set_heating_limit", {vol.Required("value"): vol.All(vol.Coerce(float), vol.Range(min=8, max=22))})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_heating_limit(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        await o.async_set_heating_limit(msg["value"])
+        return {"heating_limit": msg["value"]}
 
     await _run(hass, connection, msg, run)

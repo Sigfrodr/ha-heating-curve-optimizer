@@ -64,6 +64,9 @@ class HeatingPilot:
         d.setdefault("standby_log", [])
         d.setdefault("preheat_rate", None)
         d.setdefault("writes", [])
+        d.setdefault("room_targets", {})
+        d.setdefault("room_originals", {})
+        self._room_writes: dict[str, float] = {}
         self._no_demand_since: float | None = None
         self._forecast: dict = {}
         self._last_write = 0.0
@@ -113,6 +116,8 @@ class HeatingPilot:
         self.o._save()
         if previous == "active":
             await self._async_restore_originals()
+            for entity_id in list(self.o.data["room_originals"]):
+                await self._async_restore_room(entity_id)
         await self.async_tick()
 
     async def async_set_schedule(self, schedule: dict, comfort: float, reduced: float) -> None:
@@ -120,6 +125,65 @@ class HeatingPilot:
         self.o.data["temps"] = {"comfort": float(comfort), "reduced": float(reduced)}
         self.o._save()
         await self.async_tick()
+
+    # ----------------------------------------------------------- consignes par pièce
+
+    def room_targets(self) -> dict[str, dict]:
+        """Réglage de chaque pièce suivie (désactivée par défaut, consignes de la maison)."""
+        targets = self.o.data["room_targets"]
+        out = {}
+        for entity_id in self.o.cfg.get(CONF_ROOMS) or []:
+            out[entity_id] = targets.get(entity_id) or {
+                "enabled": False, "comfort": self.temps["comfort"], "reduced": self.temps["reduced"],
+            }
+        return out
+
+    async def async_set_room_targets(self, targets: dict[str, dict]) -> None:
+        rooms = set(self.o.cfg.get(CONF_ROOMS) or [])
+        for entity_id, t in targets.items():
+            if entity_id not in rooms:
+                raise ValueError(f"pièce non suivie : {entity_id}")
+            self.o.data["room_targets"][entity_id] = {
+                "enabled": bool(t["enabled"]), "comfort": float(t["comfort"]), "reduced": float(t["reduced"]),
+            }
+            if not t["enabled"]:
+                await self._async_restore_room(entity_id)
+        self.o._save()
+        await self.async_tick()
+
+    def _room_plan(self, mode: str) -> dict[str, float]:
+        level = "reduced" if mode == "réduit" else "comfort"
+        return {e: t[level] for e, t in self.room_targets().items() if t["enabled"]}
+
+    async def _async_apply_rooms(self, plan: dict[str, float], now: float) -> None:
+        for entity_id, target in plan.items():
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in ("off", "unavailable", "unknown"):
+                continue
+            if st.attributes.get("window_open") or st.attributes.get("window_state") == "on":
+                continue  # Better Thermostat gère la fenêtre ouverte
+            current = st.attributes.get("temperature")
+            if current is not None and abs(float(current) - target) < 0.25:
+                continue
+            if now - self._room_writes.get(entity_id, 0) < MIN_WRITE_INTERVAL:
+                continue
+            originals = self.o.data["room_originals"]
+            if entity_id not in originals and current is not None:
+                originals[entity_id] = float(current)
+            await self.hass.services.async_call(
+                "climate", "set_temperature", {"entity_id": entity_id, "temperature": target}, blocking=True
+            )
+            self._room_writes[entity_id] = now
+            _LOGGER.info("Pilotage : %s %s → %s °C", entity_id, current, target)
+
+    async def _async_restore_room(self, entity_id: str) -> None:
+        original = self.o.data["room_originals"].pop(entity_id, None)
+        if original is None:
+            return
+        await self.hass.services.async_call(
+            "climate", "set_temperature", {"entity_id": entity_id, "temperature": original}, blocking=True
+        )
+        self.o._save()
 
     def _program_entities(self) -> dict[str, str]:
         o = self.o
@@ -284,7 +348,8 @@ class HeatingPilot:
         if state.get("mode") != decision.mode:
             self._log_transition(state.get("mode"), decision.mode, now)
             state = {"mode": decision.mode, "since": now}
-        state.update({"setpoint": decision.setpoint, "reason": decision.reason, "at": now})
+        rooms_plan = self._room_plan(decision.mode)
+        state.update({"setpoint": decision.setpoint, "reason": decision.reason, "at": now, "rooms": rooms_plan})
         self.o.data["control_state"] = state
         log = self.o.data["decision_log"]
         if not log or log[-1][1] != decision.mode or log[-1][2] != decision.setpoint or now - log[-1][0] > 1800:
@@ -292,6 +357,7 @@ class HeatingPilot:
             self.o.data["decision_log"] = [x for x in log if x[0] >= now - 2 * 86400]
         if self.mode == "active":
             await self._async_apply(decision.setpoint, now)
+            await self._async_apply_rooms(rooms_plan, now)
         self.o._save()
         self.o._set_status(self.o.status)
 
@@ -350,4 +416,5 @@ class HeatingPilot:
             "trv_suggestion": self.trv_schedule_suggestion(),
             "forecast": self._forecast,
             "originals": self.o.data["control_originals"],
+            "room_targets": self.room_targets(),
         }

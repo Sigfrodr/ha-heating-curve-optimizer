@@ -63,8 +63,12 @@
             "name": "Alertes chaudière",
             "data": {
               "min_pressure": "Pression d'eau minimum",
-              "short_cycle_minutes": "Durée de cycle brûleur sous laquelle alerter"
-            }
+              "short_cycle_minutes": "Durée de cycle brûleur sous laquelle alerter",
+              "overconsumption_ratio": "Surconsommation : alerter au-delà de (× la prévision)",
+              "maintenance_months": "Intervalle entre deux entretiens",
+              "daily_check_time": "Heure des contrôles quotidiens"
+            },
+            "description": "Pression, chaudière injoignable, antigel, cycles courts, surconsommation par rapport au bilan thermique, baisse lente de pression, échéance d'entretien (bouton « Entretien effectué »)."
           },
           "dhw": {
             "name": "Eau chaude : montée anti-légionelle",
