@@ -28,6 +28,7 @@ async def async_setup_entry(
             CycleLengthSensor(optimizer),
             PilotSetpointSensor(optimizer),
             GasPriceSensor(optimizer),
+            GasPriceKwhSensor(optimizer),
             GasCostTodaySensor(optimizer, "heating"),
             GasCostTodaySensor(optimizer, "dhw"),
             ViCareWritesSensor(optimizer),
@@ -147,6 +148,21 @@ class GasPriceSensor(OptimizerEntity, SensorEntity):
     def native_value(self) -> float:
         cfg = self.optimizer.cfg
         return round(float(cfg["gas_price"]) * float(cfg["kwh_per_m3"]), 4)
+
+
+class GasPriceKwhSensor(OptimizerEntity, SensorEntity):
+    """Prix du kWh de gaz : entité de prix d'une source gaz en kWh (compteur Gazpar) du tableau Énergie."""
+
+    _attr_icon = "mdi:currency-eur"
+    _attr_native_unit_of_measurement = "EUR/kWh"
+    _attr_suggested_display_precision = 4
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "gas_price_kwh")
+
+    @property
+    def native_value(self) -> float:
+        return round(float(self.optimizer.cfg["gas_price"]), 5)
 
 
 class GasCostTodaySensor(OptimizerEntity, SensorEntity):

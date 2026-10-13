@@ -75,7 +75,7 @@ async def test_entities_created(hass: HomeAssistant, loaded_entry):
     ids = {s.entity_id for s in hass.states.async_all() if s.entity_id.startswith(
         ("sensor.optimiseur", "switch.optimiseur", "button.optimiseur", "binary_sensor.optimiseur",
          "select.optimiseur"))}
-    assert len(ids) == 16
+    assert len(ids) == 17
     assert hass.states.get("switch.optimiseur_courbe_de_chauffe_ajustement_automatique").state == "off"
 
 

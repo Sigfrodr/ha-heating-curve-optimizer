@@ -151,6 +151,9 @@
       },
       "vicare_writes_24h": {
         "name": "Écritures ViCare (24 h)"
+      },
+      "gas_price_kwh": {
+        "name": "Prix du gaz (kWh)"
       }
     },
     "switch": {
