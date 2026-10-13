@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Optimiseur de courbe de chauffe",
+        "description": "Choisis les entités ViCare de la chaudière. L'optimiseur démarre en simulation : il ne modifie rien tant que l'interrupteur « Ajustement automatique » est éteint.",
+        "data": {
+          "climate": "Circuit de chauffage (climate)",
+          "outside_temperature": "Température extérieure",
+          "slope": "Pente de la courbe de chauffe",
+          "shift": "Décalage de la courbe de chauffe",
+          "room_temperature": "Température ambiante (facultatif, sinon celle du climate)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Ce circuit de chauffage est déjà configuré."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Réglages de l'optimiseur",
+        "data": {
+          "programs": "Programmes ViCare pris en compte",
+          "heating_limit": "Pas de collecte au-dessus de cette T° extérieure",
+          "settle_minutes": "Stabilisation après changement de programme / consigne / courbe",
+          "sample_minutes": "Intervalle de mesure",
+          "min_samples": "Échantillons minimum avant évaluation",
+          "max_age_days": "Durée de conservation des mesures",
+          "evaluate_at": "Heure d'évaluation quotidienne",
+          "notify": "Service de notification (ex. mobile_app_mon_telephone)",
+          "damping": "Part de la correction appliquée",
+          "max_shift_step": "Variation max du décalage par ajustement",
+          "max_slope_step": "Variation max de la pente par ajustement",
+          "shift_min": "Décalage minimum",
+          "shift_max": "Décalage maximum",
+          "slope_min": "Pente minimum",
+          "slope_max": "Pente maximum",
+          "deadband": "Écart toléré",
+          "min_outside_spread": "Amplitude de T° ext. nécessaire pour modifier la pente"
+        }
+      }
+    }
+  }
+}

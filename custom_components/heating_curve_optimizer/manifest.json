@@ -1,0 +1,17 @@
+{
+  "domain": "heating_curve_optimizer",
+  "name": "Optimiseur de courbe de chauffe",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "panel_custom",
+    "websocket_api"
+  ],
+  "documentation": "https://www.home-assistant.io/integrations/vicare/",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "requirements": [],
+  "version": "0.2.1"
+}
