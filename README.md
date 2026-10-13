@@ -58,8 +58,8 @@ Réglages : Paramètres › Appareils et services › Optimiseur de courbe de ch
 ## Installation / mise à jour
 
 - **HACS** (dépôt personnalisé, catégorie Intégration) : le dépôt contient `hacs.json`.
-- **Manuel** : copier `custom_components/heating_curve_optimizer/` dans `/config/custom_components/`
-  Un changement limité au panneau (`frontend/`) ne demande qu'un rechargement de la page.
+- **Manuel** : copier `custom_components/heating_curve_optimizer/` dans `/config/custom_components/`,
+  puis redémarrer Home Assistant. Un changement limité au panneau (`frontend/`) ne demande qu'un rechargement de la page.
 
 ## Points d'attention
 
