@@ -50,6 +50,12 @@ sur la **consigne du programme actif**, comme l'appli ViCare. Il applique :
   **prévision météo** (froid annoncé → relance plus tôt) ;
 - l'**anticipation solaire** : consigne baissée d'1 °C quand un soleil franc est prévu.
 
+**Quota ViCare** : l'API Viessmann accepte 1 450 appels par 24 h et l'intégration ViCare de HA en consomme déjà
+environ 1 440 pour ses relevés (toutes les minutes). Le pilote, la courbe et l'eau chaude partagent donc un
+**budget d'écritures** (8 par jour par défaut) : une baisse de consigne n'est faite que s'il reste de quoi revenir
+au confort, pas de nouvelle veille dans les 30 min qui suivent la précédente, et une alerte prévient quand le budget
+est atteint. Dépasser le quota bloque l'accès ViCare pendant 24 h.
+
 En **simulation**, le pilote calcule et affiche ses décisions sans rien écrire. En **actif**, les consignes
 d'origine (chaudière et pièces) sont mémorisées et remises au retour en simulation / désactivé.
 Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus pour la chaudière.
@@ -69,7 +75,12 @@ Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus
 
 ![Onglet Diagnostic](docs/screenshots/fr-diag.png)
 
-## Coûts et tableau Énergie
+## Coûts, facture et tableau Énergie
+
+**Prévision de la facture** (onglet Économies) : consommation depuis le début de la période de facturation, plus le
+reste de l'année selon un profil mensuel type appliqué à la consommation de référence, comparée aux mensualités →
+montant estimé de la régularisation. **Compteur de gaz** : un capteur Gazpar (ou autre compteur) peut remplacer les
+relevés ViCare, souvent imprécis, pour toutes les statistiques.
 
 Le prix du kWh de gaz et la conversion m³ → kWh (facture) se règlent dans les options. L'intégration fournit :
 
@@ -90,6 +101,7 @@ Panneau dans la barre latérale (administrateurs), en français ou en anglais se
 | **Chaudière** | Démarrages et cycles du brûleur, part du temps en condensation, pression et sa tendance, entretien annuel |
 | **Eau chaude** | Consigne, ballon, part du gaz, recommandation 50 °C, montée anti-légionelle hebdomadaire |
 | **Diagnostic** | Déperditions (W/K) et seuil de chauffe par saison, jours de surconsommation, équilibrage des radiateurs, bilan hebdomadaire |
+| **Réglages** | Toutes les options de l'intégration (pièces, météo, pilotage, coûts, facture, alertes, eau chaude, algorithme), sans passer par les menus de Home Assistant |
 
 **Carte de tableau de bord** : carte « Courbe de chauffe » (type `custom:heating-curve-card`) avec l'état, l'écart,
 le pilotage, les alertes, et les boutons Évaluer / Ajustement auto.
@@ -110,7 +122,7 @@ le pilotage, les alertes, et les boutons Évaluer / Ajustement auto.
 | `sensor.…_demarrages_bruleur_24_h`, `…_duree_moyenne_de_cycle_bruleur_24_h` | Suivi du brûleur |
 | `sensor.…_prix_du_gaz`, `…_cout_du_gaz_…_aujourd_hui` | Tableau Énergie |
 
-Réglages : Paramètres › Appareils et services › Optimiseur de courbe de chauffe › Configurer
+Réglages : onglet **Réglages** du panneau, ou Paramètres › Appareils et services › Optimiseur de courbe de chauffe › Configurer
 (sections Pièces et météo, Pilotage, Coûts et rapport hebdomadaire, Alertes, Eau chaude, Algorithme).
 
 ## Installation / mise à jour

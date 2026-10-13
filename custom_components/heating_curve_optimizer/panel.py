@@ -44,6 +44,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_set_room_targets)
         websocket_api.async_register_command(hass, ws_set_maintenance)
         websocket_api.async_register_command(hass, ws_set_heating_limit)
+        websocket_api.async_register_command(hass, ws_get_settings)
+        websocket_api.async_register_command(hass, ws_set_settings)
+        websocket_api.async_register_command(hass, ws_bill_forecast)
         # Carte de tableau de bord, chargée sur toutes les pages
         frontend.add_extra_js_url(hass, f"{STATIC_URL}/{CARD_COMPONENT}.js?v={version}")
     await panel_custom.async_register_panel(
@@ -237,5 +240,33 @@ async def ws_set_heating_limit(hass: HomeAssistant, connection, msg: dict) -> No
     async def run(o):
         await o.async_set_heating_limit(msg["value"])
         return {"heating_limit": msg["value"]}
+
+    await _run(hass, connection, msg, run)
+
+
+@_command("get_settings")
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_settings(hass: HomeAssistant, connection, msg: dict) -> None:
+    await _run(hass, connection, msg, lambda o: o.async_settings())
+
+
+@_command("set_settings", {vol.Required("values"): dict})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_settings(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        await o.async_save_settings(msg["values"])
+        return {"saved": True}
+
+    await _run(hass, connection, msg, run)
+
+
+@_command("bill_forecast")
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_bill_forecast(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        return {"forecast": await o.async_bill_forecast()}
 
     await _run(hass, connection, msg, run)

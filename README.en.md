@@ -49,6 +49,12 @@ ViCare can neither edit the boiler's schedule nor force a program, so the pilot 
   (colder forecast → earlier start);
 - **solar anticipation**: setpoint lowered by 1 °C when strong sunshine is forecast.
 
+**ViCare quota**: the Viessmann API allows 1,450 calls per 24 h and HA's ViCare integration already uses about
+1,440 of them for its polling (every minute). The pilot, the curve and hot water therefore share a **write budget**
+(8 per day by default): a setpoint decrease is only made if enough budget remains to return to comfort, no new
+standby within 30 min of the previous one, and an alert fires when the budget is reached. Exceeding the quota blocks
+ViCare access for 24 h.
+
 In **dry run** the pilot computes and shows its decisions without writing anything. When **active**, the
 original setpoints (boiler and rooms) are saved and restored when switching back to dry run / off.
 Safeguards: at least 5 min between writes, at most 48 boiler writes per day.
@@ -67,7 +73,12 @@ Safeguards: at least 5 min between writes, at most 48 boiler writes per day.
 
 ![Diagnostics tab](docs/screenshots/en-diag.png)
 
-## Costs and Energy dashboard
+## Costs, bill and Energy dashboard
+
+**Bill forecast** (Savings tab): consumption since the start of the billing period, plus the rest of the year from
+a typical monthly profile applied to the reference consumption, compared with the instalments → estimated yearly
+settlement. **Gas meter**: a Gazpar (or other meter) sensor can replace the often inaccurate ViCare readings for all
+statistics.
 
 Set the gas price per kWh and the m³ → kWh conversion (from your bill) in the options. The integration provides:
 
@@ -88,6 +99,7 @@ Sidebar panel (administrators), in English or French depending on Home Assistant
 | **Boiler** | Burner starts and cycles, share of time condensing, pressure and its trend, annual service |
 | **Hot water** | Setpoint, tank, gas share, 50 °C recommendation, weekly anti-legionella boost |
 | **Diagnostics** | Heat loss (W/K) and heating limit per season, overconsumption days, radiator balancing, weekly report |
+| **Settings** | Every integration option (rooms, weather, pilot, costs, bill, alerts, hot water, algorithm) without going through Home Assistant menus |
 
 **Dashboard card**: "Heating curve" card (type `custom:heating-curve-card`) with status, deviation, pilot,
 alerts, and Evaluate / Automatic adjustment buttons.

@@ -100,6 +100,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "Ajustements de courbe : {n}.": "Curve adjustments: {n}.",
         "Chaudière mise en veille faute de demande : {h} h.": "Boiler in standby for lack of demand: {h} h.",
         "Alertes : aucune.": "Alerts: none.",
+        "Budget d'écritures ViCare atteint ({n}/{b} sur 24 h) : plus de changement de consigne avant demain, "
+        "pour ne pas dépasser le quota Viessmann.":
+            "ViCare write budget reached ({n}/{b} over 24 h): no more setpoint changes until tomorrow, "
+            "to stay within the Viessmann quota.",
         "Alertes : {list}.": "Alerts: {list}.",
     }
 }

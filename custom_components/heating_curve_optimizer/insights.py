@@ -137,7 +137,63 @@ def maintenance_status(last_service: date | None, today: date, interval_months: 
     return Maintenance(last_service, due, (due - today).days, since)
 
 
+# ------------------------------------------------------------------ budget d'écritures ViCare
+
+
+def write_allowed(budget: int, used_24h: int, lowering: bool) -> bool:
+    """Une écriture qui baisse la consigne garde toujours de quoi revenir au confort.
+
+    L'API ViCare est limitée à 1 450 appels par 24 h et l'intégration HA en consomme
+    déjà environ 1 440 pour ses relevés : le reste est un budget très court.
+    """
+    remaining = budget - used_24h
+    return remaining >= (2 if lowering else 1)
+
+
+# ------------------------------------------------------------------ prévision de facture
+
+# Répartition mensuelle typique du gaz (chauffage + eau chaude) en France, janvier → décembre
+MONTHLY_PROFILE = (0.18, 0.14, 0.12, 0.07, 0.04, 0.02, 0.015, 0.015, 0.03, 0.07, 0.13, 0.17)
+
+
+@dataclass
+class BillForecast:
+    consumed_kwh: float
+    remaining_kwh: float
+    total_kwh: float
+    total_cost: float
+    payments: float
+    balance: float  # > 0 : à payer à la régularisation, < 0 : remboursement
+    period_end: date
+
+
+def _add_year(d: date) -> date:
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:  # 29 février
+        return d.replace(year=d.year + 1, day=28)
+
+
+def bill_forecast(
+    start: date, today: date, consumed_kwh: float, reference_annual_kwh: float,
+    price_per_kwh: float, fixed_annual_cost: float, monthly_payment: float, payments_count: int,
+    profile: tuple[float, ...] = MONTHLY_PROFILE,
+) -> BillForecast:
+    """Facture annuelle estimée : consommé depuis le début de période + reste selon le profil mensuel."""
+    end = _add_year(start)
+    remaining = 0.0
+    day = today
+    while day < end:
+        month_days = (date(day.year + day.month // 12, day.month % 12 + 1, 1) - date(day.year, day.month, 1)).days
+        remaining += reference_annual_kwh * profile[day.month - 1] / month_days
+        day = date.fromordinal(day.toordinal() + 1)
+    total = consumed_kwh + remaining
+    cost = total * price_per_kwh + fixed_annual_cost
+    payments = monthly_payment * payments_count
+    return BillForecast(consumed_kwh, remaining, total, cost, payments, cost - payments, end)
+
+
 __all__ = [
-    "ComputedCurve", "Maintenance", "curve_term", "expected_gas_kwh", "heating_limit",
+    "BillForecast", "ComputedCurve", "MONTHLY_PROFILE", "Maintenance", "bill_forecast", "write_allowed", "curve_term", "expected_gas_kwh", "heating_limit",
     "maintenance_status", "needed_supply", "overconsumption", "physical_curve", "pressure_trend", "slow_leak",
 ]

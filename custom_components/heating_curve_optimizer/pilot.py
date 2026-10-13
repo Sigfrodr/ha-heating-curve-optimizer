@@ -28,8 +28,10 @@ from .const import (
     CONF_WEATHER,
     CONTROL_MODES,
 )
+from .insights import write_allowed
 from .control import (
     DEFAULT_SCHEDULE,
+    ControlDecision,
     ControlInputs,
     decide_setpoint,
     forecast_factor,
@@ -46,7 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PROGRAM_KEYS = ("comfort", "normal", "reduced")
 MIN_WRITE_INTERVAL = 300  # s entre deux écritures de consigne
-MAX_WRITES_PER_DAY = 48
+STANDBY_COOLDOWN = 1800  # s sans nouvelle veille après en être sorti (évite les allers-retours)
 WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
@@ -67,6 +69,7 @@ class HeatingPilot:
         d.setdefault("room_targets", {})
         d.setdefault("room_originals", {})
         self._room_writes: dict[str, float] = {}
+        self._left_standby_at = 0.0
         self._no_demand_since: float | None = None
         self._forecast: dict = {}
         self._last_write = 0.0
@@ -357,6 +360,10 @@ class HeatingPilot:
         decision = self.decide()
         now = time.time()
         state = self.o.data["control_state"] or {}
+        if decision.mode == "veille" and now - self._left_standby_at < STANDBY_COOLDOWN:
+            decision = ControlDecision(self.temps["comfort"], "confort", "période confort du planning")
+        if state.get("mode") == "veille" and decision.mode != "veille":
+            self._left_standby_at = now
         if state.get("mode") != decision.mode:
             self._log_transition(state.get("mode"), decision.mode, now)
             state = {"mode": decision.mode, "since": now}
@@ -401,15 +408,17 @@ class HeatingPilot:
             current = self.o._program_temperature(program)
         if current is not None and abs(float(current) - setpoint) < 0.5:
             return
-        writes = [t for t in self.o.data["writes"] if t >= now - 86400]
-        if now - self._last_write < MIN_WRITE_INTERVAL or len(writes) >= MAX_WRITES_PER_DAY:
+        lowering = setpoint < float(current if current is not None else setpoint) and setpoint < self.temps["comfort"]
+        if now - self._last_write < MIN_WRITE_INTERVAL:
             return
+        if not write_allowed(self.o.write_budget, self.o.writes_24h, lowering):
+            return  # budget ViCare presque épuisé : on garde de quoi revenir au confort
         await self.hass.services.async_call(
             "climate", "set_temperature",
             {"entity_id": self.o.cfg[CONF_CLIMATE], "temperature": setpoint}, blocking=True,
         )
         self._last_write = now
-        self.o.data["writes"] = writes + [now]
+        self.o.register_write()
         _LOGGER.info("Pilotage : consigne %s → %s °C", current, setpoint)
 
     # ----------------------------------------------------------- panneau

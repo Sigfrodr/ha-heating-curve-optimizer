@@ -87,6 +87,8 @@ const snapshot = () => ({
   costs: { gas_price: 0.11, kwh_per_m3: 11.0 },
   report: { enabled: true, weekday: 0, time: "08:00:00", notify: "mobile_app_phone" },
   computed_curve: { slope: 1.0, shift: 3, coefficient: 3.1, rms: 0.6 },
+  writes: { used: 3, budget: 8 },
+  gas_source: { entity: "sensor.gas_heating", to_m3: 1, meter: false },
   pressure_trend: -0.014,
   pressure_days: pressureDays,
   maintenance: { last: "2025-11-20", due: "2026-11-20", days_left: 310, burner_hours_since: 640, months: 12 },
@@ -147,9 +149,59 @@ window.demoHass = {
         return { text: LANG === "fr"
           ? "Gaz chauffage : 31.4 m³ (≈ 37.99 €).\n0.312 m³ par degré-jour (-9 % par rapport à la semaine précédente).\nAjustements de courbe : 1.\nChaudière mise en veille faute de demande : 23 h.\nAlertes : aucune."
           : "Heating gas: 31.4 m³ (≈ €37.99).\n0.312 m³ per degree-day (-9 % vs previous week).\nCurve adjustments: 1.\nBoiler in standby for lack of demand: 23 h.\nAlerts: none." };
+      case "heating_curve_optimizer/bill_forecast":
+        return { forecast: { consumed_kwh: 1420, remaining_kwh: 7310, total_kwh: 8730, total_cost: 1226, payments: 1284,
+          balance: -58, period_start: "2026-04-11", period_end: "2027-04-11" } };
+      case "heating_curve_optimizer/get_settings": return demoSettings();
+      case "heating_curve_optimizer/set_settings":
+        (window.__calls = window.__calls || []).push(["ws", msg.type, msg.values]);
+        return { saved: true };
       default: return {};
     }
   },
-  callService() { return Promise.resolve(); },
+  callService(domain, service, data) { (window.__calls = window.__calls || []).push([domain, service, data]); return Promise.resolve(); },
   callApi() { return Promise.resolve({}); },
 };
+
+function demoSettings() {
+  const fr = LANG === "fr";
+  const L = (f, e) => (fr ? f : e);
+  const fields = [
+    { key: "programs", section: null, kind: "programs", label: L("Programmes ViCare pris en compte", "ViCare programs taken into account") },
+    { key: "heating_limit", section: null, kind: "number", min: 5, max: 25, step: 0.5, unit: "°C", label: L("Pas de collecte au-dessus de cette T° extérieure", "No sampling above this outdoor temperature") },
+    { key: "notify", section: null, kind: "notify", label: L("Service de notification", "Notification service") },
+    { key: "rooms", section: "rooms_weather", kind: "entities", domain: "climate", label: L("Thermostats de pièces", "Room thermostats") },
+    { key: "weather", section: "rooms_weather", kind: "entity", domain: "weather", label: L("Météo (couverture nuageuse)", "Weather (cloud coverage)") },
+    { key: "solar_filter", section: "rooms_weather", kind: "bool", label: L("Ignorer les mesures par grand soleil", "Ignore samples in strong sunshine") },
+    { key: "write_budget", section: "pilot", kind: "number", min: 2, max: 40, step: 1, label: L("Écritures ViCare autorisées par jour", "ViCare writes allowed per day") },
+    { key: "standby_temp", section: "pilot", kind: "number", min: 5, max: 20, step: 1, unit: "°C", label: L("Consigne de veille", "Standby setpoint") },
+    { key: "gas_price", section: "costs_report", kind: "number", min: 0.01, max: 1, step: 0.001, unit: "€/kWh", label: L("Prix du gaz", "Gas price") },
+    { key: "gas_meter", section: "costs_report", kind: "entity", domain: "sensor", label: L("Compteur de gaz (Gazpar…)", "Gas meter (Gazpar…)") },
+    { key: "report_weekday", section: "costs_report", kind: "weekday", label: L("Jour du bilan", "Report day") },
+    { key: "billing_start", section: "billing", kind: "date", label: L("Début de la période de facturation", "Billing period start") },
+    { key: "monthly_payment", section: "billing", kind: "number", min: 0, max: 1000, step: 0.01, unit: "€", label: L("Mensualité TTC", "Monthly instalment") },
+    { key: "daily_check_time", section: "alerts", kind: "time", label: L("Heure des contrôles quotidiens", "Daily checks time") },
+  ];
+  return {
+    sections: [
+      { key: "rooms_weather", name: L("Pièces et météo", "Rooms and weather"), description: "" },
+      { key: "pilot", name: L("Pilotage de la consigne", "Setpoint pilot"), description: "" },
+      { key: "costs_report", name: L("Coûts et rapport hebdomadaire", "Costs and weekly report"), description: "" },
+      { key: "billing", name: L("Facture et mensualités", "Bill and instalments"), description: "" },
+      { key: "alerts", name: L("Alertes chaudière", "Boiler alerts"), description: "" },
+    ],
+    fields,
+    values: { programs: ["comfortEnergySaving", "normalEnergySaving"], heating_limit: 16, notify: "mobile_app_phone",
+      rooms: ["climate.salon", "climate.chambre_1"], weather: "weather.home", solar_filter: true, write_budget: 8, standby_temp: 15,
+      gas_price: 0.1, gas_meter: "", billing_start: "2026-04-11", monthly_payment: 116.71, report_weekday: "0", daily_check_time: "06:30:00" },
+    choices: {
+      weekday: (fr ? ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+        : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]).map((l, i) => ({ value: String(i), label: l })),
+      programs: ["comfort", "comfortEnergySaving", "normal", "normalEnergySaving", "reduced"],
+      climate: ROOMS.map((id) => ({ value: id, label: names[id] })),
+      weather: [{ value: "weather.home", label: names["weather.home"] }],
+      sensor: [{ value: "sensor.gazpar", label: "Gazpar" }],
+      notify: ["mobile_app_phone", "phones"],
+    },
+  };
+}

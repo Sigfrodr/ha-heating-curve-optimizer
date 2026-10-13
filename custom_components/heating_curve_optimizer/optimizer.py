@@ -71,7 +71,9 @@ from .analysis import (
 from .control import balance_rooms, gas_cost, thermal_balance, weekly_report
 from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
 from .messages import translate
+from .settings_spec import EMPTY, FIELDS, SECTIONS, validate
 from .insights import (
+    bill_forecast,
     expected_gas_kwh,
     heating_limit,
     maintenance_status,
@@ -349,6 +351,11 @@ class HeatingCurveOptimizer:
             )
         )
         alerts.update(self.data["daily_alerts"])
+        if self.writes_24h >= self.write_budget:
+            alerts["write_budget"] = (
+                f"Budget d'écritures ViCare atteint ({self.writes_24h}/{self.write_budget} sur 24 h) : "
+                "plus de changement de consigne avant demain, pour ne pas dépasser le quota Viessmann."
+            )
         previous = self.data["alerts"]
         for code, message in alerts.items():
             if code not in previous:
@@ -564,15 +571,135 @@ class HeatingCurveOptimizer:
             statistics_during_period,
         )
 
-        gas = self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
+        gas, factor = self.gas_source
         outside = self.cfg[CONF_OUTSIDE]
         start = dt_util.start_of_local_day() - timedelta(days=days)
         ids = {i for i in (gas, outside) if i}
         stats = await get_instance(self.hass).async_add_executor_job(
             statistics_during_period, self.hass, start, None, ids, "day", None, {"change", "mean"}
         )
-        gas_by_day = {r["start"]: r.get("change") for r in stats.get(gas, [])} if gas else {}
+        gas_by_day = (
+            {r["start"]: (r.get("change") * factor if r.get("change") is not None else None)
+             for r in stats.get(gas, [])}
+            if gas else {}
+        )
         return [(r["start"], gas_by_day.get(r["start"]), r.get("mean")) for r in stats.get(outside, [])]
+
+    @property
+    def gas_source(self) -> tuple[str | None, float]:
+        """(entité de gaz pour les statistiques, facteur vers des m³).
+
+        Un compteur (Gazpar…) est prioritaire sur l'estimation ViCare ; s'il compte en kWh,
+        on revient en m³ avec le coefficient de conversion de la facture.
+        """
+        meter = self.cfg.get("gas_meter")
+        if meter:
+            st = self.hass.states.get(meter)
+            unit = (st.attributes.get("unit_of_measurement") or "") if st else ""
+            return meter, (1 / float(self.cfg[CONF_KWH_PER_M3]) if "wh" in unit.lower() else 1.0)
+        return self._device_entity("sensor", "gas_summary_consumption_heating_currentday"), 1.0
+
+    async def async_gas_kwh_since(self, start_day) -> float:
+        """kWh de gaz (chauffage + eau chaude, ou compteur) consommés depuis une date."""
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
+            statistics_during_period,
+        )
+
+        kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
+        if self.cfg.get("gas_meter"):
+            sources = [self.gas_source]
+        else:
+            sources = [
+                (self._device_entity("sensor", "gas_summary_consumption_heating_currentday"), 1.0),
+                (self._device_entity("sensor", "hotwater_gas_summary_consumption_heating_currentday"), 1.0),
+            ]
+        ids = {e for e, _ in sources if e}
+        if not ids:
+            return 0.0
+        start = dt_util.as_utc(dt_util.start_of_local_day(start_day))
+        stats = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period, self.hass, start, None, ids, "day", None, {"change"}
+        )
+        m3 = sum((r.get("change") or 0) * f for e, f in sources if e for r in stats.get(e, []))
+        return m3 * kwh_per_m3
+
+    async def async_bill_forecast(self) -> dict | None:
+        from datetime import date as _date  # noqa: PLC0415
+
+        cfg = self.cfg
+        if not cfg.get("billing_start") or not float(cfg.get("reference_annual_kwh") or 0):
+            return None
+        start = _date.fromisoformat(cfg["billing_start"])
+        today = dt_util.now().date()
+        while _date(start.year + 1, start.month, min(start.day, 28)) <= today:  # période en cours
+            start = _date(start.year + 1, start.month, min(start.day, 28))
+        consumed = await self.async_gas_kwh_since(start)
+        f = bill_forecast(
+            start, today, consumed, float(cfg["reference_annual_kwh"]), float(cfg[CONF_GAS_PRICE]),
+            float(cfg.get("fixed_annual_cost") or 0), float(cfg.get("monthly_payment") or 0),
+            int(cfg.get("payments_count") or 11),
+        )
+        return {**{k: (v.isoformat() if hasattr(v, "isoformat") else round(v, 2)) for k, v in f.__dict__.items()},
+                "period_start": start.isoformat()}
+
+    # ------------------------------------------------------------ réglages (panneau)
+
+    async def async_settings(self) -> dict:
+        """Champs, libellés traduits, valeurs et listes de choix pour l'onglet Réglages."""
+        from homeassistant.helpers.translation import async_get_translations  # noqa: PLC0415
+
+        lang = self.hass.config.language
+        tr_opts = await async_get_translations(self.hass, lang, "options", {DOMAIN})
+        tr_sel = await async_get_translations(self.hass, lang, "selector", {DOMAIN})
+        base = f"component.{DOMAIN}.options.step.init"
+
+        def label(field):
+            sec = field["section"]
+            key = f"{base}.data.{field['key']}" if sec is None else f"{base}.sections.{sec}.data.{field['key']}"
+            return tr_opts.get(key, field["key"])
+
+        sections = [
+            {"key": s, "name": tr_opts.get(f"{base}.sections.{s}.name", s),
+             "description": tr_opts.get(f"{base}.sections.{s}.description", "")}
+            for s in SECTIONS
+        ]
+        weekdays = [tr_sel.get(f"component.{DOMAIN}.selector.weekday.options.{i}", str(i)) for i in range(7)]
+        states = self.hass.states
+        climate = states.get(self.cfg[CONF_CLIMATE])
+        own = {e.entity_id for e in er.async_entries_for_config_entry(er.async_get(self.hass), self.entry.entry_id)}
+
+        def entity_choices(domain, pred=lambda st: True):
+            return sorted(
+                ({"value": st.entity_id, "label": st.attributes.get("friendly_name", st.entity_id)}
+                 for st in states.async_all(domain) if st.entity_id not in own and pred(st)),
+                key=lambda c: c["label"].lower(),
+            )
+
+        return {
+            "title": tr_opts.get(f"{base}.title", ""),
+            "sections": sections,
+            "fields": [{**f, "label": label(f)} for f in FIELDS],
+            "values": {f["key"]: self.cfg.get(f["key"], EMPTY.get(f["key"])) for f in FIELDS},
+            "choices": {
+                "weekday": [{"value": str(i), "label": d} for i, d in enumerate(weekdays)],
+                "programs": sorted(set(climate.attributes.get("vicare_programs", [])) if climate else set()
+                                   | set(self.cfg.get(CONF_PROGRAMS, []))),
+                "climate": entity_choices("climate", lambda st: st.entity_id != self.cfg[CONF_CLIMATE]),
+                "weather": entity_choices("weather"),
+                "sensor": entity_choices(
+                    "sensor",
+                    lambda st: st.attributes.get("device_class") in ("gas", "energy")
+                    and st.attributes.get("state_class") in ("total", "total_increasing"),
+                ),
+                "notify": sorted(s for s in self.hass.services.async_services().get("notify", {})
+                                 if s.startswith("mobile_app_") or s in ("phones",)),
+            },
+        }
+
+    async def async_save_settings(self, values: dict) -> None:
+        options = {**self.entry.options, **validate(values)}
+        self.hass.config_entries.async_update_entry(self.entry, options=options)
 
     async def async_diagnostics(self) -> dict:
         """Bilan thermique par saison de chauffe et équilibrage des pièces."""
@@ -686,6 +813,9 @@ class HeatingCurveOptimizer:
             ),
             "pilot": pilot,
             "computed_curve": self.computed_curve(),
+            "writes": {"used": self.writes_24h, "budget": self.write_budget},
+            "gas_source": {"entity": self.gas_source[0], "to_m3": self.gas_source[1],
+                           "meter": bool(self.cfg.get("gas_meter"))},
             "pressure_trend": self.pressure_trend,
             "pressure_days": self.data["pressure_days"],
             "maintenance": {
@@ -799,6 +929,23 @@ class HeatingCurveOptimizer:
         await self.hass.services.async_call(
             "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
         )
+        self.register_write()
+
+    # ---------------------------------------------------- budget d'écritures ViCare
+
+    @property
+    def write_budget(self) -> int:
+        return int(self.cfg.get("write_budget", 8))
+
+    @property
+    def writes_24h(self) -> int:
+        now = time.time()
+        return sum(1 for t in self.data.get("writes", []) if t >= now - 86400)
+
+    def register_write(self) -> None:
+        now = time.time()
+        self.data["writes"] = [t for t in self.data.get("writes", []) if t >= now - 86400] + [now]
+        self._save()
 
     async def _async_notify(
         self, title: str, message: str, suffix: str = "", actions: list[dict] | None = None

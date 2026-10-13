@@ -45,7 +45,8 @@
             "data": {
               "standby_temp": "Standby setpoint",
               "demand_delay_minutes": "Delay without demand before standby",
-              "sun_anticipation": "Lower by 1 °C when strong sun is forecast"
+              "sun_anticipation": "Lower by 1 °C when strong sun is forecast",
+              "write_budget": "ViCare writes allowed per day (pilot, curve, hot water)"
             }
           },
           "costs_report": {
@@ -56,7 +57,19 @@
               "kwh_per_m3": "m³ → kWh conversion",
               "weekly_report": "Send a weekly report",
               "report_weekday": "Report day",
-              "report_time": "Report time"
+              "report_time": "Report time",
+              "gas_meter": "Gas meter (Gazpar…), takes precedence over ViCare readings"
+            }
+          },
+          "billing": {
+            "name": "Bill and instalments",
+            "description": "To forecast the yearly settlement. Values from your bill and payment schedule: period start, monthly instalment, number of instalments, yearly standing charge and fixed taxes incl. VAT, reference consumption.",
+            "data": {
+              "billing_start": "Billing period start",
+              "monthly_payment": "Monthly instalment incl. VAT",
+              "payments_count": "Instalments per year",
+              "fixed_annual_cost": "Yearly standing charge and fixed taxes incl. VAT",
+              "reference_annual_kwh": "Reference yearly consumption"
             }
           },
           "alerts": {
@@ -135,6 +148,9 @@
       },
       "gas_cost_today_dhw": {
         "name": "Hot water gas cost (today)"
+      },
+      "vicare_writes_24h": {
+        "name": "ViCare writes (24 h)"
       }
     },
     "switch": {

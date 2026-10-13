@@ -45,7 +45,8 @@
             "data": {
               "standby_temp": "Consigne de veille",
               "demand_delay_minutes": "Délai sans demande avant la veille",
-              "sun_anticipation": "Baisser d'1 °C quand un soleil franc est prévu"
+              "sun_anticipation": "Baisser d'1 °C quand un soleil franc est prévu",
+              "write_budget": "Écritures ViCare autorisées par jour (pilote, courbe, eau chaude)"
             }
           },
           "costs_report": {
@@ -56,7 +57,19 @@
               "kwh_per_m3": "Conversion m³ → kWh",
               "weekly_report": "Envoyer un bilan chaque semaine",
               "report_weekday": "Jour du bilan",
-              "report_time": "Heure du bilan"
+              "report_time": "Heure du bilan",
+              "gas_meter": "Compteur de gaz (Gazpar…), prioritaire sur les relevés ViCare"
+            }
+          },
+          "billing": {
+            "name": "Facture et mensualités",
+            "description": "Pour prévoir ta régularisation annuelle. Valeurs sur ta facture et ton échéancier : début de période, mensualité, nombre de prélèvements, abonnement et taxes fixes TTC par an, consommation de référence.",
+            "data": {
+              "billing_start": "Début de la période de facturation",
+              "monthly_payment": "Mensualité TTC",
+              "payments_count": "Nombre de mensualités par an",
+              "fixed_annual_cost": "Abonnement et taxes fixes TTC par an",
+              "reference_annual_kwh": "Consommation annuelle de référence"
             }
           },
           "alerts": {
@@ -135,6 +148,9 @@
       },
       "gas_cost_today_dhw": {
         "name": "Coût du gaz eau chaude (aujourd'hui)"
+      },
+      "vicare_writes_24h": {
+        "name": "Écritures ViCare (24 h)"
       }
     },
     "switch": {

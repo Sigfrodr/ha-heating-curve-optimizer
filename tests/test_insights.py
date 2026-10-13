@@ -72,3 +72,26 @@ def test_maintenance_status():
     m = maintenance_status(date(2025, 11, 20), date(2026, 10, 13), 12, 9358, 8100)
     assert m.due == date(2026, 11, 20) and m.days_left == 38 and m.burner_hours_since == 1258
     assert maintenance_status(None, date(2026, 10, 13), 12, None, None).due is None
+
+
+def test_write_budget_keeps_a_way_back():
+    from insights import write_allowed
+
+    assert write_allowed(8, 6, lowering=True)  # 2 restantes : on peut baisser puis revenir
+    assert not write_allowed(8, 7, lowering=True)  # 1 seule : on ne baisse plus
+    assert write_allowed(8, 7, lowering=False)  # mais on peut toujours remonter
+    assert not write_allowed(8, 8, lowering=False)
+
+
+def test_bill_forecast():
+    from insights import MONTHLY_PROFILE, bill_forecast
+
+    assert abs(sum(MONTHLY_PROFILE) - 1) < 1e-9
+    # début de période : tout reste à consommer, la référence entière est prévue
+    f = bill_forecast(date(2026, 4, 11), date(2026, 4, 11), 0, 9000, 0.1, 350, 116.71, 11)
+    assert abs(f.remaining_kwh - 9000) < 20 and f.period_end == date(2027, 4, 11)
+    assert abs(f.total_cost - (f.total_kwh * 0.1 + 350)) < 1e-9
+    assert abs(f.balance - (f.total_cost - 116.71 * 11)) < 1e-9
+    # en octobre, l'été est passé : il reste l'essentiel de l'hiver
+    g = bill_forecast(date(2026, 4, 11), date(2026, 10, 14), 1200, 9000, 0.1, 350, 116.71, 11)
+    assert 6500 < g.remaining_kwh < 7600 and g.total_kwh == 1200 + g.remaining_kwh

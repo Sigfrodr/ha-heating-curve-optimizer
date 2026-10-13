@@ -30,6 +30,7 @@ async def async_setup_entry(
             GasPriceSensor(optimizer),
             GasCostTodaySensor(optimizer, "heating"),
             GasCostTodaySensor(optimizer, "dhw"),
+            ViCareWritesSensor(optimizer),
         ]
     )
 
@@ -191,3 +192,21 @@ class GasCostTodaySensor(OptimizerEntity, SensorEntity):
             return None
         cfg = self.optimizer.cfg
         return round(m3 * float(cfg["kwh_per_m3"]) * float(cfg["gas_price"]), 2)
+
+
+class ViCareWritesSensor(OptimizerEntity, SensorEntity):
+    """Écritures envoyées à ViCare sur 24 h glissantes (quota Viessmann : 1 450 appels par jour)."""
+
+    _attr_icon = "mdi:cloud-upload-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, optimizer) -> None:
+        super().__init__(optimizer, "vicare_writes_24h")
+
+    @property
+    def native_value(self) -> int:
+        return self.optimizer.writes_24h
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"budget": self.optimizer.write_budget}

@@ -263,6 +263,29 @@ const EN = {
   "Veille (pas de demande)": "Standby (no demand)",
   "Relance anticipée": "Early start",
   "En pause": "Paused",
+  "Confirmer": "Confirm",
+  "Réglages": "Settings",
+  "Général": "General",
+  "— aucun —": "— none —",
+  "Enregistrer": "Save",
+  "Modifications non enregistrées": "Unsaved changes",
+  "Tous les réglages de l'optimiseur, au même endroit.": "All optimizer settings in one place.",
+  "Réglages enregistrés : l'optimiseur redémarre avec les nouvelles valeurs": "Settings saved: the optimizer restarts with the new values",
+  "Échec : {e}": "Failed: {e}",
+  "Calcul en cours…": "Calculating…",
+  "Renseigne ta facture dans l'onglet Réglages (section « Facture et mensualités ») : début de période, mensualité, abonnement et consommation de référence.":
+    "Enter your bill in the Settings tab (\"Bill and instalments\" section): period start, monthly instalment, standing charge and reference consumption.",
+  "{v} €": "€{v}",
+  "≈ {v} à payer à la régularisation": "≈ {v} to pay at the yearly settlement",
+  "≈ {v} remboursés à la régularisation": "≈ {v} refunded at the yearly settlement",
+  "consommés depuis le {d}": "used since {d}",
+  "estimés sur l'année (reste selon un profil mensuel type)": "estimated for the year (remainder from a typical monthly profile)",
+  "facture annuelle estimée TTC": "estimated yearly bill incl. VAT",
+  "mensualités prévues": "scheduled instalments",
+  "(fin de période le {d})": "(period ends {d})",
+  "Estimation : elle s'affine au fil de l'hiver, et dépend surtout de la météo à venir.": "Estimate: it gets more accurate through the winter and mostly depends on the weather to come.",
+  "Prévision de la facture": "Bill forecast",
+  "écritures ViCare sur 24 h (quota Viessmann)": "ViCare writes over 24 h (Viessmann quota)",
   "Soleil attendu": "Sun expected",
   "Réduit": "Reduced",
   "Pilotage": "Setpoint pilot",
@@ -500,6 +523,27 @@ tr:last-child td { border-bottom:none; }
 .msg { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--primary-text-color); color:var(--card-background-color, #fff);
   padding:10px 16px; border-radius:8px; font-size:14px; z-index:10; box-shadow:0 4px 12px rgba(0,0,0,.25); }
 .err { color:var(--error-color, #db4437); }
+.mode.clickable { cursor:pointer; border-radius:8px; padding:4px 8px; margin:-4px -8px; }
+.mode.clickable:hover { background:var(--secondary-background-color); }
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:20; padding:16px; }
+.modal { background:var(--card-background-color, #fff); color:var(--primary-text-color); border-radius:12px; padding:20px; max-width:440px; width:100%;
+  box-shadow:0 8px 32px rgba(0,0,0,.3); }
+.modal p { margin:0 0 16px; font-size:14px; line-height:1.5; }
+.modal .actions { justify-content:flex-end; }
+.fields { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px 20px; }
+.field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.field.wide { grid-column:1 / -1; }
+.field > label { font-size:13px; color:var(--secondary-text-color); }
+.field input[type="number"], .field input[type="time"], .field input[type="date"], .field input[type="text"], .field select {
+  font:inherit; font-size:14px; padding:7px 9px; border-radius:8px; border:1px solid var(--divider-color);
+  background:var(--card-background-color); color:var(--primary-text-color); max-width:100%; }
+.field .num { display:flex; align-items:center; gap:6px; }
+.field .num input { width:120px; }
+.field .num small { color:var(--secondary-text-color); }
+.checks { display:flex; flex-wrap:wrap; gap:6px 16px; }
+.check { display:inline-flex; align-items:center; gap:6px; font-size:14px; cursor:pointer; }
+.savebar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; position:sticky; top:8px; z-index:3; }
+.savebar > span { font-size:14px; color:var(--secondary-text-color); }
 .tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid var(--divider-color); scrollbar-width:none; }
 .tabs button { font:inherit; font-size:14px; font-weight:500; background:none; border:none; border-bottom:2px solid transparent; color:var(--secondary-text-color);
   padding:10px 14px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; }
@@ -560,6 +604,19 @@ class HeatingCurvePanel extends HTMLElement {
       this._tab = "curve";
     }
     this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
+    this.shadowRoot.addEventListener("pointerdown", () => { this._pointerDown = true; });
+    const release = () => {
+      this._pointerDown = false;
+      if (this._renderPending) {
+        this._renderPending = false;
+        setTimeout(() => this._render(), 50); // après l'événement click qui suit le relâchement
+      }
+    };
+    this.shadowRoot.addEventListener("pointerup", release);
+    this.shadowRoot.addEventListener("pointercancel", release);
+    this.shadowRoot.addEventListener("keydown", (e) => {
+      if (this._modal && e.key === "Escape") this._closeModal(false);
+    });
   }
 
   // ------------------------------------------------------------------ cycle de vie
@@ -663,15 +720,27 @@ class HeatingCurvePanel extends HTMLElement {
   }
 
   // ------------------------------------------------------------------ actions
+  _closeModal(ok) {
+    const modal = this._modal;
+    this._modal = null;
+    this._render();
+    modal?.resolve(ok);
+  }
+
   async _onClick(e) {
     const el = e.target.closest("[data-action]");
     if (!el || el.disabled) return;
+    if (el.dataset.action === "modal-ok" || el.dataset.action === "modal-cancel") {
+      this._closeModal(el.dataset.action === "modal-ok");
+      return;
+    }
+    if (this._modal) return;
     const live = this._live();
     const a = el.dataset.action;
     const s = this._data.settings;
     if (a === "toggle-auto") {
       const on = !this._data.auto;
-      if (on && !confirm(t(
+      if (on && !await this._confirm(t(
         "Activer l'ajustement automatique ?\n\nChaque nuit, l'optimiseur modifiera lui-même la courbe " +
         "de la chaudière (au plus ±{slope} de pente et ±{shift} K de décalage).",
         { slope: fmt(s.max_slope_step), shift: fmt(s.max_shift_step, 0) },
@@ -713,12 +782,12 @@ class HeatingCurvePanel extends HTMLElement {
       this._fetch();
     } else if (a === "set-dhw") {
       const v = parseFloat(el.dataset.value);
-      if (!confirm(t("Régler la consigne d'eau chaude sur {v} °C ?", { v }))) return;
+      if (!await this._confirm(t("Régler la consigne d'eau chaude sur {v} °C ?", { v }))) return;
       await this._hass.callService("number", "set_value", { entity_id: this._data.entities.dhw_target, value: v });
       this._toast(t("Consigne d'eau chaude envoyée : {v} °C", { v }));
     } else if (a === "pilot-mode") {
       const mode = el.dataset.mode;
-      if (mode === "active" && !confirm(t(
+      if (mode === "active" && !await this._confirm(t(
         "Activer le pilotage ?\n\nLe pilote écrira la consigne du programme actif de la chaudière (planning, veille sans demande, " +
         "relance anticipée). Les consignes d'origine sont mémorisées et remises si tu repasses en Désactivé ou Simulation."))) return;
       try {
@@ -788,16 +857,41 @@ class HeatingCurvePanel extends HTMLElement {
     } else if (a === "maintenance-done") {
       const input = this.shadowRoot.querySelector("#maint-date");
       const date = input?.value || undefined;
-      if (!confirm(date ? t("Enregistrer un entretien au {date} ?", { date }) : t("Enregistrer un entretien aujourd'hui ?"))) return;
+      if (!await this._confirm(date ? t("Enregistrer un entretien au {date} ?", { date }) : t("Enregistrer un entretien aujourd'hui ?"))) return;
       this._data = await this._hass.callWS({ type: `${DOMAIN}/set_maintenance`, ...(date ? { date } : {}) });
       this._toast(t("Entretien enregistré"));
       this._render();
     } else if (a === "use-limit") {
       const v = parseFloat(el.dataset.value);
-      if (!confirm(t("Ne plus collecter de mesures au-dessus de {v} °C extérieur ?", { v: fmt(v, 1) }))) return;
+      if (!await this._confirm(t("Ne plus collecter de mesures au-dessus de {v} °C extérieur ?", { v: fmt(v, 1) }))) return;
       await this._hass.callWS({ type: `${DOMAIN}/set_heating_limit`, value: v });
       this._toast(t("Seuil enregistré (l'intégration se recharge)"));
       setTimeout(() => this._fetch(), 3000);
+    } else if (a === "settings-toggle") {
+      const k = el.dataset.key;
+      this._settingsDraft[k] = !this._settingsDraft[k];
+      this._settingsDirty = true;
+      this._render();
+    } else if (a === "settings-reset") {
+      this._settingsDraft = JSON.parse(JSON.stringify(this._settingsDef.values));
+      this._settingsDirty = false;
+      this._render();
+    } else if (a === "settings-save") {
+      const changed = {};
+      for (const [k, val] of Object.entries(this._settingsDraft)) {
+        if (JSON.stringify(val) !== JSON.stringify(this._settingsDef.values[k])) changed[k] = val;
+      }
+      try {
+        await this._hass.callWS({ type: `${DOMAIN}/set_settings`, values: changed });
+        this._toast(t("Réglages enregistrés : l'optimiseur redémarre avec les nouvelles valeurs"));
+        this._settingsDef = null;
+        this._bill = null;
+        this._stats = null;
+        setTimeout(() => this._fetch(), 4000);
+      } catch (err) {
+        this._toast(t("Échec : {e}", { e: err?.message || err }));
+      }
+      this._render();
     } else if (a === "send-report") {
       try {
         await this._hass.callWS({ type: `${DOMAIN}/weekly_report`, send: true });
@@ -826,7 +920,7 @@ class HeatingCurvePanel extends HTMLElement {
         s0: fmt(live.slope), s1: fmt(slope), h0: fmt(live.shift, 0, true), h1: fmt(shift, 0, true),
       }) +
       (twoSteps ? t("\n\nLa pente est écrite tout de suite, le décalage environ 5 min après (contrainte ViCare).") : "");
-    if (!confirm(msg)) return;
+    if (!await this._confirm(msg)) return;
     try {
       this._data = await this._hass.callWS({ type: `${DOMAIN}/set_curve`, slope, shift, reason });
       this._edit = null;
@@ -848,8 +942,32 @@ class HeatingCurvePanel extends HTMLElement {
   }
 
   // ------------------------------------------------------------------ rendu
+  _confirm(message) {
+    return new Promise((resolve) => {
+      this._modal = { message, resolve };
+      this._render();
+    });
+  }
+
   _render() {
     if (!this.shadowRoot || !this._hass) return;
+    const focused = this.shadowRoot.activeElement;
+    if (focused && ["INPUT", "SELECT", "TEXTAREA"].includes(focused.tagName) && !this._forceRender) {
+      // Saisie en cours : redessiner ferait perdre le champ actif ; on redessinera à la sortie du champ
+      this._renderPending = true;
+      if (!this._focusHooked) {
+        this._focusHooked = true;
+        this.shadowRoot.addEventListener("focusout", () => setTimeout(() => {
+          if (this._renderPending && !this.shadowRoot.activeElement) { this._renderPending = false; this._render(); }
+        }, 0));
+      }
+      return;
+    }
+    if (this._pointerDown) {
+      // Un clic est en cours : redessiner maintenant remplacerait le bouton visé et perdrait le clic
+      this._renderPending = true;
+      return;
+    }
     this._lastKey = this._data ? this._liveKey() : null;
     this._lang = LANG;
     const root = this.shadowRoot;
@@ -860,7 +978,12 @@ class HeatingCurvePanel extends HTMLElement {
     root.innerHTML = `<style>${STYLE}</style>
       <div class="toolbar"><span class="menu"></span><span class="title">${t("Courbe de chauffe")}</span></div>
       <div class="content">${body}</div>
-      ${this._msgText ? `<div class="msg" role="status">${esc(this._msgText)}</div>` : ""}`;
+      ${this._msgText ? `<div class="msg" role="status">${esc(this._msgText)}</div>` : ""}
+      ${this._modal ? `<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-text">
+        <p id="modal-text">${esc(this._modal.message).replace(/\n/g, "<br>")}</p>
+        <div class="actions"><button class="btn" data-action="modal-cancel">${t("Annuler")}</button>
+          <button class="btn primary" data-action="modal-ok">${t("Confirmer")}</button></div></div></div>` : ""}`;
+    root.querySelector('[data-action="modal-ok"]')?.focus();
 
     if (this._narrow) {
       const mb = document.createElement("ha-menu-button");
@@ -872,6 +995,7 @@ class HeatingCurvePanel extends HTMLElement {
     root.querySelectorAll("[data-chart]").forEach((el) => this._ro?.observe(el));
     this._bindHover();
     this._bindSchedule();
+    this._bindSettings();
   }
 
   _body() {
@@ -898,7 +1022,7 @@ class HeatingCurvePanel extends HTMLElement {
                 ? t("pilotage actif : {mode} {v} °C", { mode: esc(t(d.pilot.state.mode)), v: fmt(d.pilot.state.setpoint, 0) })
                 : t("pilotage simulé : {mode} {v} °C", { mode: esc(t(d.pilot.state.mode)), v: fmt(d.pilot.state.setpoint, 0) })}` : ""}</small></div>
         </div>
-        <div class="mode">
+        <div class="mode clickable" data-action="toggle-auto">
           <button class="toggle" role="switch" aria-checked="${d.auto}" aria-label="${t("Ajustement automatique")}" data-action="toggle-auto"></button>
           <div>${d.auto ? t("Ajustement automatique") : t("Simulation")}
             <small>${d.auto ? t("la courbe est modifiée chaque nuit") : t("propose sans rien modifier")}</small></div>
@@ -980,6 +1104,7 @@ class HeatingCurvePanel extends HTMLElement {
       ["boiler", "mdi:fire", t("Chaudière")],
       ["dhw", "mdi:water-boiler", t("Eau chaude")],
       ["diag", "mdi:stethoscope", t("Diagnostic")],
+      ["settings", "mdi:cog-outline", t("Réglages")],
     ];
     const nav = `<nav class="tabs" role="tablist">${tabs
       .map(([k, icon, label]) =>
@@ -987,7 +1112,8 @@ class HeatingCurvePanel extends HTMLElement {
       .join("")}</nav>`;
 
     let content;
-    if (this._tab === "planning") content = this._planningTab(pal);
+    if (this._tab === "settings") content = this._settingsTab();
+    else if (this._tab === "planning") content = this._planningTab(pal);
     else if (this._tab === "diag") content = this._diagnosticTab(pal);
     else if (this._tab === "rooms") content = this._roomsTab(live);
     else if (this._tab === "savings") content = this._savingsTab(pal);
@@ -1007,7 +1133,7 @@ class HeatingCurvePanel extends HTMLElement {
     const e = this._data.entities;
     const now = Date.now();
     const iso = (ms) => new Date(ms).toISOString();
-    const daily = [e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours].filter(Boolean);
+    const daily = [this._data.gas_source?.entity || e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours].filter(Boolean);
     const hourly = [e.supply, e.modulation].filter(Boolean);
     const startDay = new Date(now - 60 * DAY);
     startDay.setHours(0, 0, 0, 0);
@@ -1112,7 +1238,8 @@ class HeatingCurvePanel extends HTMLElement {
     if (!this._stats) body = `<div class="empty">${t("Chargement des statistiques…")}</div>`;
     else if (this._stats.error) body = `<div class="empty err">${esc(this._stats.error)}</div>`;
     else {
-      const gas = new Map(this._dailySeries(d.entities.gas_heating_day, "change").map((r) => [r.t, r.v]));
+      const src = d.gas_source || { entity: d.entities.gas_heating_day, to_m3: 1 };
+      const gas = new Map(this._dailySeries(src.entity, "change").map((r) => [r.t, r.v * src.to_m3]));
       const days = this._dailySeries(d.entities.outside, "mean").map((r) => {
         const dju = Math.max(0, DJU_BASE - r.v);
         const g = gas.get(r.t);
@@ -1158,6 +1285,7 @@ class HeatingCurvePanel extends HTMLElement {
     return `<div class="card"><h2>${t("Consommation corrigée de la météo")}</h2>
         <p class="sub">${t("Gaz de chauffage par degré-jour sur 60 jours")}
           <button class="btn" style="padding:2px 8px;margin-left:6px" data-action="reload-stats">${t("Actualiser")}</button></p>${body}</div>
+      ${this._billCard()}
       ${this._recoveryCard()}`;
   }
 
@@ -1290,7 +1418,7 @@ class HeatingCurvePanel extends HTMLElement {
           <small>${t("Chaque {day} à {time} : {temp} °C pendant {min} min, puis retour à la consigne", {
             day: weekdayName(lg.weekday), time: esc(String(lg.time).slice(0, 5)), temp: fmt(lg.temp, 0), min: fmt(lg.minutes, 0),
           })}${lg.running ? ` · <b>${t("en cours")}</b>` : lg.last ? ` · ${t("dernière le {d}", { d: dateFr(lg.last) })}` : ""}</small></div></div>
-        <div class="mode"><button class="toggle" role="switch" aria-checked="${lg.enabled}" aria-label="${t("Montée anti-légionelle")}" data-action="toggle-legionella"></button>
+        <div class="mode clickable" data-action="toggle-legionella"><button class="toggle" role="switch" aria-checked="${lg.enabled}" aria-label="${t("Montée anti-légionelle")}" data-action="toggle-legionella"></button>
           <div>${lg.enabled ? t("Activée") : t("Désactivée")}</div></div>
       </div>`;
   }
@@ -1349,6 +1477,7 @@ class HeatingCurvePanel extends HTMLElement {
           <div class="kpi"><div class="v"><span class="chip" style="font-size:14px"><i class="key-dot" style="background:${modeColors[st.mode]}"></i>${esc(modeLabels[st.mode] || st.mode)}</span></div>
             <div class="l">${esc(st.reason)}</div></div>
           <div class="kpi"><div class="v">${p.preheat_rate ? `${fmt(p.preheat_rate, 1)} K/h` : "—"}</div><div class="l">${t("vitesse de relance apprise")}</div></div>
+          <div class="kpi"><div class="v">${this._data.writes.used} / ${this._data.writes.budget}</div><div class="l">${t("écritures ViCare sur 24 h (quota Viessmann)")}</div></div>
           <div class="kpi"><div class="v">${fmt(p.standby_hours_7d, 0)} h</div><div class="l">${t("de veille sur 7 jours")}${p.mode === "simulation" ? ` ${t("(simulées)")}` : ""}</div></div>
         </div>` : "";
 
@@ -1518,6 +1647,135 @@ class HeatingCurvePanel extends HTMLElement {
         <pre class="report">${esc(g.report || "")}</pre>
         <div class="actions"><button class="btn" data-action="send-report">${t("Envoyer maintenant")}</button>
           <button class="btn" data-action="reload-diag">${t("Actualiser")}</button></div></div>`;
+  }
+
+  // ------------------------------------------------------------------ onglet Réglages
+  _ensureSettings() {
+    if (this._settingsDef || this._settingsLoading) return;
+    this._settingsLoading = true;
+    this._hass.callWS({ type: `${DOMAIN}/get_settings` })
+      .then((def) => {
+        this._settingsDef = def;
+        this._settingsDraft = JSON.parse(JSON.stringify(def.values));
+        this._settingsDirty = false;
+      })
+      .catch((err) => { this._settingsDef = { error: err?.message || String(err) }; })
+      .finally(() => { this._settingsLoading = false; this._render(); });
+  }
+
+  _settingsTab() {
+    this._ensureSettings();
+    const def = this._settingsDef;
+    if (!def) return `<div class="card"><div class="empty">${t("Chargement…")}</div></div>`;
+    if (def.error) return `<div class="card"><div class="empty err">${esc(def.error)}</div></div>`;
+    const v = this._settingsDraft;
+    const ch = def.choices;
+    const opt = (list, current, empty) => (empty ? `<option value="">${t("— aucun —")}</option>` : "") +
+      list.map((c) => `<option value="${esc(c.value)}" ${String(current) === String(c.value) ? "selected" : ""}>${esc(c.label)}</option>`).join("");
+    const checks = (key, list) => `<div class="checks">${list.map((c) => {
+      const value = typeof c === "string" ? c : c.value;
+      const label = typeof c === "string" ? c : c.label;
+      return `<label class="check"><input type="checkbox" data-key="${key}" data-list-value="${esc(value)}" ${(v[key] || []).includes(value) ? "checked" : ""}> ${esc(label)}</label>`;
+    }).join("")}</div>`;
+    const input = (f) => {
+      const val = v[f.key];
+      switch (f.kind) {
+        case "number":
+          return `<span class="num"><input type="number" data-key="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${val ?? ""}">${f.unit ? `<small>${esc(f.unit)}</small>` : ""}</span>`;
+        case "bool":
+          return `<button class="toggle" role="switch" aria-checked="${!!val}" aria-label="${esc(f.label)}" data-action="settings-toggle" data-key="${f.key}"></button>`;
+        case "time":
+          return `<input type="time" step="60" data-key="${f.key}" value="${esc(String(val || "").slice(0, 5))}">`;
+        case "date":
+          return `<input type="date" data-key="${f.key}" value="${esc(val || "")}">`;
+        case "weekday":
+          return `<select data-key="${f.key}">${opt(ch.weekday, val)}</select>`;
+        case "programs":
+          return checks(f.key, ch.programs);
+        case "entities":
+          return checks(f.key, ch.climate);
+        case "entity":
+          return `<select data-key="${f.key}">${opt(f.domain === "weather" ? ch.weather : ch.sensor, val, true)}</select>`;
+        case "notify":
+          return `<select data-key="${f.key}">${opt(ch.notify.map((s) => ({ value: s, label: s })), val, true)}</select>`;
+        default:
+          return `<input type="text" data-key="${f.key}" value="${esc(val || "")}">`;
+      }
+    };
+    const block = (fields) => fields.map((f) => `<div class="field ${["programs", "entities"].includes(f.kind) ? "wide" : ""}">
+        <label>${esc(f.label)}</label>${input(f)}</div>`).join("");
+    const general = def.fields.filter((f) => f.section === null);
+    const cards = def.sections.map((s) => {
+      const fields = def.fields.filter((f) => f.section === s.key);
+      return `<div class="card"><h2>${esc(s.name)}</h2>${s.description ? `<p class="sub">${esc(s.description)}</p>` : ""}
+        <div class="fields">${block(fields)}</div></div>`;
+    }).join("");
+    const bar = `<div class="card savebar"><span>${this._settingsDirty ? t("Modifications non enregistrées") : t("Tous les réglages de l'optimiseur, au même endroit.")}</span>
+      <div class="actions"><button class="btn" data-action="settings-reset" ${this._settingsDirty ? "" : "disabled"}>${t("Annuler")}</button>
+      <button class="btn primary" data-action="settings-save" ${this._settingsDirty ? "" : "disabled"}>${t("Enregistrer")}</button></div></div>`;
+    return `${bar}<div class="card"><h2>${t("Général")}</h2><div class="fields">${block(general)}</div></div>${cards}`;
+  }
+
+  _bindSettings() {
+    const root = this.shadowRoot;
+    root.querySelectorAll("[data-key]").forEach((el) => {
+      if (el.tagName !== "INPUT" && el.tagName !== "SELECT") return;
+      el.addEventListener("change", () => {
+        const key = el.dataset.key;
+        const v = this._settingsDraft;
+        if (el.type === "checkbox") {
+          const set = new Set(v[key] || []);
+          if (el.checked) set.add(el.dataset.listValue); else set.delete(el.dataset.listValue);
+          v[key] = [...set];
+        } else if (el.type === "number") {
+          v[key] = el.value === "" ? v[key] : parseFloat(el.value);
+        } else if (el.type === "time") {
+          v[key] = el.value ? `${el.value}:00` : v[key];
+        } else {
+          v[key] = el.value;
+        }
+        this._settingsDirty = true;
+        root.querySelectorAll('[data-action="settings-save"],[data-action="settings-reset"]').forEach((b) => { b.disabled = false; });
+        const msg = root.querySelector(".savebar > span");
+        if (msg) msg.textContent = t("Modifications non enregistrées");
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------ prévision de facture
+  _ensureBill() {
+    if (this._bill || this._billLoading) return;
+    this._billLoading = true;
+    this._hass.callWS({ type: `${DOMAIN}/bill_forecast` })
+      .then((r) => { this._bill = r; })
+      .catch((err) => { this._bill = { error: err?.message || String(err) }; })
+      .finally(() => { this._billLoading = false; this._render(); });
+  }
+
+  _billCard() {
+    this._ensureBill();
+    const b = this._bill;
+    let body;
+    if (!b) body = `<p class="sub">${t("Calcul en cours…")}</p>`;
+    else if (b.error) body = `<p class="sub err">${esc(b.error)}</p>`;
+    else if (!b.forecast) body = `<div class="advice"><ha-icon icon="mdi:information-outline"></ha-icon><div>${t("Renseigne ta facture dans l'onglet Réglages (section « Facture et mensualités ») : début de période, mensualité, abonnement et consommation de référence.")}</div></div>`;
+    else {
+      const f = b.forecast;
+      const d = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(LOCALE, { day: "numeric", month: "long", year: "numeric" });
+      const money = (x) => t("{v} €", { v: fmt(x, 0) });
+      const balance = f.balance >= 0
+        ? t("≈ {v} à payer à la régularisation", { v: money(f.balance) })
+        : t("≈ {v} remboursés à la régularisation", { v: money(-f.balance) });
+      body = `<div class="kpis">
+          <div class="kpi"><div class="v">${fmt(f.consumed_kwh, 0)} kWh</div><div class="l">${t("consommés depuis le {d}", { d: d(f.period_start) })}</div></div>
+          <div class="kpi"><div class="v">${fmt(f.total_kwh, 0)} kWh</div><div class="l">${t("estimés sur l'année (reste selon un profil mensuel type)")}</div></div>
+          <div class="kpi"><div class="v">${money(f.total_cost)}</div><div class="l">${t("facture annuelle estimée TTC")}</div></div>
+          <div class="kpi"><div class="v">${money(f.payments)}</div><div class="l">${t("mensualités prévues")}</div></div>
+        </div>
+        <div class="advice"><ha-icon icon="mdi:cash-check"></ha-icon><div><b>${balance}</b> ${t("(fin de période le {d})", { d: d(f.period_end) })}.
+          ${t("Estimation : elle s'affine au fil de l'hiver, et dépend surtout de la météo à venir.")}</div></div>`;
+    }
+    return `<div class="card"><h2>${t("Prévision de la facture")}</h2>${body}</div>`;
   }
 
   // ------------------------------------------------------------------ graphique en colonnes (une série, par jour)

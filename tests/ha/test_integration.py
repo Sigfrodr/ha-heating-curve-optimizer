@@ -49,7 +49,9 @@ async def test_options_flow_flattens_sections(hass: HomeAssistant, vicare):
                               "solar_cloud_max": 60, "solar_min_elevation": 10},
             "alerts": {"min_pressure": 1.0, "short_cycle_minutes": 10, "overconsumption_ratio": 1.3,
                        "maintenance_months": 12, "daily_check_time": "06:30:00"},
-            "pilot": {"standby_temp": 15, "demand_delay_minutes": 20, "sun_anticipation": True},
+            "pilot": {"standby_temp": 15, "demand_delay_minutes": 20, "sun_anticipation": True, "write_budget": 8},
+            "billing": {"monthly_payment": 116.71, "payments_count": 11, "fixed_annual_cost": 350,
+                        "reference_annual_kwh": 9235, "billing_start": "2026-04-11"},
             "costs_report": {"gas_price": 0.11, "kwh_per_m3": 11.0, "weekly_report": True,
                              "report_weekday": "0", "report_time": "08:00:00"},
             "dhw": {"legionella_weekday": "6", "legionella_time": "14:00:00",
@@ -66,13 +68,14 @@ async def test_options_flow_flattens_sections(hass: HomeAssistant, vicare):
     assert entry.options["min_pressure"] == 1.0
     assert entry.options["weather"] == ""
     assert entry.options["gas_price"] == 0.11
+    assert entry.options["billing_start"] == "2026-04-11" and entry.options["gas_meter"] == ""
 
 
 async def test_entities_created(hass: HomeAssistant, loaded_entry):
     ids = {s.entity_id for s in hass.states.async_all() if s.entity_id.startswith(
         ("sensor.optimiseur", "switch.optimiseur", "button.optimiseur", "binary_sensor.optimiseur",
          "select.optimiseur"))}
-    assert len(ids) == 15
+    assert len(ids) == 16
     assert hass.states.get("switch.optimiseur_courbe_de_chauffe_ajustement_automatique").state == "off"
 
 
