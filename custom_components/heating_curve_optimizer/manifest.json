@@ -1,7 +1,12 @@
 {
   "domain": "heating_curve_optimizer",
   "name": "Optimiseur de courbe de chauffe",
-  "codeowners": [],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@Sigfrodr"
+  ],
   "config_flow": true,
   "dependencies": [
     "frontend",
@@ -9,10 +14,10 @@
     "panel_custom",
     "websocket_api"
   ],
-  "after_dependencies": ["recorder"],
-  "documentation": "https://www.home-assistant.io/integrations/vicare/",
+  "documentation": "https://github.com/Sigfrodr/ha-heating-curve-optimizer",
   "integration_type": "service",
   "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Sigfrodr/ha-heating-curve-optimizer/issues",
   "requirements": [],
   "version": "0.3.0"
 }
