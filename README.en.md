@@ -93,11 +93,9 @@ Sidebar panel (administrators), in English or French depending on Home Assistant
 | Tab | Content |
 |---|---|
 | **Curve** | Current curve + proposal / pending edit / computed curve, condensing zone, measured flow, manual tuning with preview, deviations by outdoor temperature, history |
-| **Schedule** | Pilot mode, computed setpoint and reason, weekly grid, import from valve heads, room setpoints, 48-hour decision timeline |
-| **Rooms** | Temperature / setpoint / heat demand of each room, share of time each room is limiting |
+| **Schedule** | Pilot mode, computed setpoint and reason, weekly grid, import from valve heads, room setpoints, 48-hour decision timeline, status of each tracked room (heat demand, share of time it is limiting) |
 | **Savings** | Gas per degree-day (base 18 °C) over 60 days, cost in €, estimated savings; morning recovery analysis |
-| **Boiler** | Burner starts and cycles, share of time condensing, pressure and its trend, annual service |
-| **Hot water** | Setpoint, tank, gas share, 50 °C recommendation, weekly anti-legionella boost |
+| **Boiler** | Burner starts and cycles, share of time condensing, pressure and its trend, annual service, hot water (setpoint, tank, gas share, weekly anti-legionella boost) |
 | **Diagnostics** | Heat loss (W/K) and heating limit per season, overconsumption days, radiator balancing, weekly report |
 | **Settings** | Every integration option (rooms, weather, pilot, costs, bill, alerts, hot water, algorithm) without going through Home Assistant menus |
 

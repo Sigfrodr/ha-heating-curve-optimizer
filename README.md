@@ -95,11 +95,9 @@ Panneau dans la barre latérale (administrateurs), en français ou en anglais se
 | Onglet | Contenu |
 |---|---|
 | **Courbe** | Courbe actuelle + proposition / réglage en cours / courbe calculée, zone de condensation, départ mesuré, réglage manuel avec aperçu, écarts par T° extérieure, historique |
-| **Planning** | Mode de pilotage, consigne calculée et raison, grille hebdomadaire, import depuis les têtes, consignes des pièces, frise des décisions sur 48 h |
-| **Pièces** | Ambiance / consigne / demande de chaleur de chaque pièce suivie, part du temps où chaque pièce est limitante |
+| **Planning** | Mode de pilotage, consigne calculée et raison, grille hebdomadaire, import depuis les têtes, consignes des pièces, frise des décisions sur 48 h, état de chaque pièce suivie (demande de chaleur, part du temps où elle est limitante) |
 | **Économies** | Gaz par degré-jour (base 18 °C) sur 60 jours, coût en €, économie estimée ; analyse des relances du matin |
-| **Chaudière** | Démarrages et cycles du brûleur, part du temps en condensation, pression et sa tendance, entretien annuel |
-| **Eau chaude** | Consigne, ballon, part du gaz, recommandation 50 °C, montée anti-légionelle hebdomadaire |
+| **Chaudière** | Démarrages et cycles du brûleur, part du temps en condensation, pression et sa tendance, entretien annuel, eau chaude (consigne, ballon, part du gaz, montée anti-légionelle) |
 | **Diagnostic** | Déperditions (W/K) et seuil de chauffe par saison, jours de surconsommation, équilibrage des radiateurs, bilan hebdomadaire |
 | **Réglages** | Toutes les options de l'intégration (pièces, météo, pilotage, coûts, facture, alertes, eau chaude, algorithme), sans passer par les menus de Home Assistant |
 

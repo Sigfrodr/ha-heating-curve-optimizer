@@ -264,6 +264,31 @@ const EN = {
   "Relance anticipée": "Early start",
   "En pause": "Paused",
   "Confirmer": "Confirm",
+  "En savoir plus": "Learn more",
+  "Pilote": "Pilot",
+  "désactivé": "off",
+  "actif": "active",
+  "simulé": "dry run",
+  "Évaluation de la courbe": "Curve evaluation",
+  "Confort (éco)": "Comfort (eco)",
+  "Normal": "Normal",
+  "Normal (éco)": "Normal (eco)",
+  "Réduit (éco)": "Reduced (eco)",
+  "Veille": "Standby",
+  "Forcé (planning)": "Forced (schedule)",
+  "Éco": "Eco",
+  "Vacances": "Holiday",
+  "Vacances à la maison": "Holiday at home",
+  "Fixe": "Fixed",
+  "Tableau Énergie de Home Assistant : source gaz = compteur Gazpar (ou consommations ViCare), prix = entité « Prix du gaz (kWh) » de l'optimiseur, qui suit les Réglages.":
+    "Home Assistant Energy dashboard: gas source = Gazpar meter (or ViCare consumption), price = the optimizer's \"Gas price (kWh)\" entity, which follows the Settings.",
+  "Vitesse de chauffe apprise par Better Thermostat pour chaque pièce, comparée à la médiane.": "Heating rate learned by Better Thermostat for each room, compared with the median.",
+  "Un radiateur qui chauffe beaucoup plus vite que les autres « vole » l'eau chaude aux pièces lentes.": "A radiator that heats much faster than the others \"steals\" hot water from the slow rooms.",
+  "La courbe est réglée pour la pièce la plus difficile à chauffer.": "The curve is tuned for the hardest room to heat.",
+  "Mode multi-pièces inactif : seule la sonde de la chaudière est utilisée. Ajoute tes thermostats dans l'onglet Réglages › Pièces et météo.":
+    "Multi-room mode off: only the boiler's room sensor is used. Add your thermostats in the Settings tab › Rooms and weather.",
+  "Parmi les pièces qui demandent de la chaleur, c'est la plus froide qui décide. Quand plus aucune ne demande, la marge de la moins chaude permet de baisser la courbe.":
+    "Among the rooms calling for heat, the coldest one decides. When none calls for heat, the margin of the least warm room lets the curve go down.",
   "Relevés ViCare corrigés de {p} % d'après le compteur Gazpar ({n} mois comparés). La prévision de facture utilise directement les relevés du compteur.":
     "ViCare readings corrected by {p} % from the Gazpar meter ({n} months compared). The bill forecast uses the meter readings directly.",
   "Réglages": "Settings",
@@ -277,7 +302,6 @@ const EN = {
   "Calcul en cours…": "Calculating…",
   "Renseigne ta facture dans l'onglet Réglages (section « Facture et mensualités ») : début de période, mensualité, abonnement et consommation de référence.":
     "Enter your bill in the Settings tab (\"Bill and instalments\" section): period start, monthly instalment, standing charge and reference consumption.",
-  "{v} €": "€{v}",
   "≈ {v} à payer à la régularisation": "≈ {v} to pay at the yearly settlement",
   "≈ {v} remboursés à la régularisation": "≈ {v} refunded at the yearly settlement",
   "consommés depuis le {d}": "used since {d}",
@@ -318,7 +342,6 @@ const EN = {
     "Click or drag on the grid: blue = comfort, empty = reduced (30 min steps).",
   "Consigne confort": "Comfort setpoint",
   "Consigne réduite": "Reduced setpoint",
-  "Enregistrer": "Save",
   "Importer depuis les têtes thermostatiques": "Import from thermostatic radiator valves",
   "Copier le lundi sur les jours ouvrés": "Copy Monday to weekdays",
   "Décisions des dernières 48 h": "Decisions over the last 48 h",
@@ -413,6 +436,16 @@ const DAY = 86400000;
 const dayLabel = (ms) => new Date(ms).toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
 const CONDENSING_MAX = 55; // °C de départ sous lesquels la condensation est assurée
 const DJU_BASE = 18;
+const capitalize = (txt) => (txt ? String(txt).charAt(0).toUpperCase() + String(txt).slice(1) : txt);
+// Noms lisibles des programmes ViCare
+const PROGRAMS = {
+  comfort: "Confort", comfortenergysaving: "Confort (éco)", normal: "Normal", normalenergysaving: "Normal (éco)",
+  reduced: "Réduit", reducedenergysaving: "Réduit (éco)", standby: "Veille", forcedlastfromschedule: "Forcé (planning)",
+  eco: "Éco", holiday: "Vacances", holidayathome: "Vacances à la maison", fixed: "Fixe",
+};
+const programLabel = (p) => (p ? t(PROGRAMS[String(p).toLowerCase()] || p) : "—");
+// Explication repliable : une phrase visible, le détail sur demande
+const info = (...paragraphs) => `<details class="info"><summary>${t("En savoir plus")}</summary>${paragraphs.map((x) => `<p>${x}</p>`).join("")}</details>`;
 const toMin = (hhmm) => { const [h, m] = String(hhmm).split(":"); return +h * 60 + +m; };
 const fromMin = (m) => (m >= 1440 ? "24:00" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
 
@@ -449,12 +482,27 @@ const STYLE = `
 .toolbar { display:flex; align-items:center; gap:8px; height:56px; padding:0 16px; background:var(--app-header-background-color, var(--primary-color));
   color:var(--app-header-text-color, #fff); font-size:20px; font-weight:400; }
 .toolbar .title { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.content { max-width:1280px; margin:0 auto; padding:var(--gap); display:grid; gap:var(--gap); }
+.content { max-width:1280px; margin:0 auto; padding:var(--gap); display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--gap); }
+.content > *, .card { min-width:0; }
+@media (max-width: 600px) { :host { --gap:10px; } .card { padding:14px; } }
+button:focus-visible, select:focus-visible, input:focus-visible, .cell:focus-visible, summary:focus-visible {
+  outline:2px solid var(--primary-color); outline-offset:2px; }
 .card { background:var(--card-background-color, #fff); border-radius:var(--ha-card-border-radius, 12px);
   border:1px solid var(--divider-color); padding:16px; min-width:0; }
 .card h2 { margin:0 0 4px; font-size:16px; font-weight:500; }
 .card .sub { margin:0 0 12px; color:var(--secondary-text-color); font-size:13px; }
 .status { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; }
+.status .state b { font-size:16px; }
+.status .facts { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:4px; font-size:13px; color:var(--secondary-text-color); }
+.status .facts span { white-space:nowrap; }
+.status .facts b { font-size:13px; color:var(--primary-text-color); }
+@media (max-width: 600px) { .status .btn { flex:1; justify-content:center; } }
+details.info { margin-top:8px; font-size:13px; color:var(--secondary-text-color); }
+details.info summary { cursor:pointer; color:var(--primary-color); width:fit-content; list-style:none; }
+details.info summary::-webkit-details-marker { display:none; }
+details.info summary::before { content:"ⓘ "; }
+details.info[open] summary { margin-bottom:6px; }
+details.info p { margin:0 0 6px; line-height:1.5; }
 .status .state { display:flex; align-items:center; gap:10px; flex:1; min-width:220px; }
 .status .state ha-icon { color:var(--secondary-text-color); }
 .status .state b { font-weight:500; }
@@ -470,7 +518,8 @@ button.btn { font:inherit; font-size:14px; font-weight:500; border-radius:8px; p
   border:1px solid var(--divider-color); background:transparent; color:var(--primary-color); display:inline-flex; align-items:center; gap:6px; }
 button.btn.primary { background:var(--primary-color); color:var(--text-primary-color, #fff); border-color:var(--primary-color); }
 button.btn:disabled { opacity:.45; cursor:default; }
-.tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:var(--gap); }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:var(--gap); }
+@media (max-width: 600px) { .tiles { grid-template-columns:repeat(2, minmax(0, 1fr)); } .tile .value { font-size:22px; } }
 .tile { display:flex; flex-direction:column; gap:2px; }
 .tile .label { display:flex; align-items:center; gap:6px; color:var(--secondary-text-color); font-size:13px; }
 .tile .label ha-icon { --mdc-icon-size:18px; }
@@ -551,6 +600,12 @@ tr:last-child td { border-bottom:none; }
   padding:10px 14px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; }
 .tabs button ha-icon { --mdc-icon-size:18px; }
 .tabs button[aria-selected="true"] { color:var(--primary-color); border-bottom-color:var(--primary-color); }
+@media (max-width: 600px) {
+  .tabs { gap:0; }
+  .tabs button { flex:1 1 0; min-width:0; flex-direction:column; gap:2px; padding:8px 2px; font-size:11px; }
+  .tabs button ha-icon { --mdc-icon-size:20px; }
+  .tabs button span { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+}
 .alert { display:flex; gap:12px; align-items:flex-start; border-radius:12px; padding:12px 16px; font-size:14px;
   background:color-mix(in srgb, var(--error-color, #db4437) 12%, var(--card-background-color, #fff)); border:1px solid color-mix(in srgb, var(--error-color, #db4437) 40%, transparent); }
 .alert ha-icon { color:var(--error-color, #db4437); flex:none; }
@@ -570,7 +625,7 @@ tr:last-child td { border-bottom:none; }
 .seg button + button { border-left:1px solid var(--divider-color); }
 .seg button[aria-checked="true"] { background:var(--primary-color); color:var(--text-primary-color, #fff); }
 .sched { display:grid; gap:3px; user-select:none; touch-action:none; overflow-x:auto; }
-.sched-hours, .sched-row { display:grid; grid-template-columns:36px 1fr; align-items:center; min-width:520px; }
+.sched-hours, .sched-row { display:grid; grid-template-columns:36px 1fr; align-items:center; min-width:330px; }
 .sched-hours { grid-template-columns:36px repeat(8, 1fr); font-size:11px; color:var(--secondary-text-color); }
 .sched-day { font-size:12px; color:var(--secondary-text-color); }
 .sched-cells { display:grid; grid-template-columns:repeat(48, 1fr); gap:1px; }
@@ -581,6 +636,13 @@ table.rooms td.cellstep { padding:4px 8px; }
 table.rooms .box { display:inline-flex; align-items:center; border:1px solid var(--divider-color); border-radius:8px; overflow:hidden; }
 table.rooms .box button { width:30px; height:30px; border:none; background:transparent; color:var(--primary-color); font-size:18px; cursor:pointer; }
 table.rooms output { min-width:56px; text-align:center; }
+@media (max-width: 600px) {
+  table.rooms td.cellstep { padding:4px 2px; }
+  table.rooms .box button { width:26px; height:28px; font-size:16px; }
+  table.rooms output { min-width:38px; font-size:13px; }
+  table.rooms th, table.rooms td { padding-left:4px; padding-right:4px; }
+  table.rooms th:nth-child(5), table.rooms td:nth-child(5) { display:none; } /* consigne prévue : secondaire sur téléphone */
+}
 input[type="date"] { font:inherit; padding:6px 8px; border-radius:8px; border:1px solid var(--divider-color);
   background:var(--card-background-color); color:var(--primary-text-color); }
 .sched-cells .cell:hover { outline:1px solid var(--primary-text-color); outline-offset:-1px; }
@@ -601,7 +663,7 @@ class HeatingCurvePanel extends HTMLElement {
     this._stats = null;
     this._recov = null;
     try {
-      this._tab = localStorage.getItem("hco-tab") || "curve";
+      this._tab = { rooms: "planning", dhw: "boiler" }[localStorage.getItem("hco-tab")] || localStorage.getItem("hco-tab") || "curve";
     } catch {
       this._tab = "curve";
     }
@@ -1018,11 +1080,13 @@ class HeatingCurvePanel extends HTMLElement {
       <div class="card status">
         <div class="state">
           <ha-icon icon="mdi:information-outline"></ha-icon>
-          <div><b>${esc(d.status)}</b>
-            <small>${t("Programme {p} · évaluation chaque jour à {h}", { p: esc(live.program || "—"), h: esc(String(s.evaluate_at).slice(0, 5)) })}${d.pilot.mode !== "off" && d.pilot.state
-              ? ` · ${d.pilot.mode === "active"
-                ? t("pilotage actif : {mode} {v} °C", { mode: esc(t(d.pilot.state.mode)), v: fmt(d.pilot.state.setpoint, 0) })
-                : t("pilotage simulé : {mode} {v} °C", { mode: esc(t(d.pilot.state.mode)), v: fmt(d.pilot.state.setpoint, 0) })}` : ""}</small></div>
+          <div><b>${esc(capitalize(d.status))}</b>
+            <div class="facts">
+              <span>${t("Chaudière")} : <b>${esc(programLabel(live.program))}</b></span>
+              <span>${t("Pilote")} : <b>${d.pilot.mode === "off" ? t("désactivé")
+                : `${d.pilot.mode === "active" ? t("actif") : t("simulé")}${d.pilot.state ? ` · ${esc(t(d.pilot.state.mode))}${d.pilot.state.setpoint != null ? ` ${fmt(d.pilot.state.setpoint, 0)} °C` : ""}` : ""}`}</b></span>
+              <span>${t("Évaluation de la courbe")} : <b>${esc(String(s.evaluate_at).slice(0, 5))}</b></span>
+            </div></div>
         </div>
         <div class="mode clickable" data-action="toggle-auto">
           <button class="toggle" role="switch" aria-checked="${d.auto}" aria-label="${t("Ajustement automatique")}" data-action="toggle-auto"></button>
@@ -1101,26 +1165,22 @@ class HeatingCurvePanel extends HTMLElement {
     const tabs = [
       ["curve", "mdi:chart-bell-curve-cumulative", t("Courbe")],
       ["planning", "mdi:calendar-clock", t("Planning")],
-      ["rooms", "mdi:home-thermometer-outline", t("Pièces")],
       ["savings", "mdi:piggy-bank-outline", t("Économies")],
       ["boiler", "mdi:fire", t("Chaudière")],
-      ["dhw", "mdi:water-boiler", t("Eau chaude")],
       ["diag", "mdi:stethoscope", t("Diagnostic")],
       ["settings", "mdi:cog-outline", t("Réglages")],
     ];
     const nav = `<nav class="tabs" role="tablist">${tabs
       .map(([k, icon, label]) =>
-        `<button role="tab" aria-selected="${this._tab === k}" data-action="tab" data-tab="${k}"><ha-icon icon="${icon}"></ha-icon>${label}</button>`)
+        `<button role="tab" aria-selected="${this._tab === k}" data-action="tab" data-tab="${k}" title="${label}"><ha-icon icon="${icon}"></ha-icon><span>${label}</span></button>`)
       .join("")}</nav>`;
 
     let content;
     if (this._tab === "settings") content = this._settingsTab();
-    else if (this._tab === "planning") content = this._planningTab(pal);
+    else if (this._tab === "planning") content = `${this._planningTab(pal)}${this._roomsTab(live)}`;
     else if (this._tab === "diag") content = this._diagnosticTab(pal);
-    else if (this._tab === "rooms") content = this._roomsTab(live);
     else if (this._tab === "savings") content = this._savingsTab(pal);
-    else if (this._tab === "boiler") content = this._boilerTab(pal);
-    else if (this._tab === "dhw") content = this._dhwTab();
+    else if (this._tab === "boiler") content = `${this._boilerTab(pal)}${this._dhwTab()}`;
     else content = `${tiles}
       <div class="main">${curveCard}${control}</div>
       ${errorCard}
@@ -1222,11 +1282,12 @@ class HeatingCurvePanel extends HTMLElement {
           <td>${share != null ? `<span class="chip ${share >= 40 ? "lim" : ""}">${t("{v} % du temps", { v: share })}</span>` : "—"}</td></tr>`;
       }).join("")}</tbody></table></div>`;
     const explain = d.rooms.length
-      ? t("La courbe est réglée pour la pièce la plus difficile à chauffer : parmi les pièces qui demandent de la chaleur, " +
-         "c'est la plus froide qui décide. Quand plus aucune ne demande, la marge de la moins chaude permet de baisser la courbe.")
-      : t("Mode multi-pièces inactif : seule la sonde de la chaudière est utilisée. Ajoute tes thermostats dans " +
-         "Paramètres › Appareils et services › Optimiseur de courbe de chauffe › Configurer › Pièces et météo.");
-    return `<div class="card"><h2>${t("Pièces suivies")}</h2><p class="sub">${explain}</p>${table}
+      ? `<p class="sub">${t("La courbe est réglée pour la pièce la plus difficile à chauffer.")}</p>`
+      : `<p class="sub">${t("Mode multi-pièces inactif : seule la sonde de la chaudière est utilisée. Ajoute tes thermostats dans l'onglet Réglages › Pièces et météo.")}</p>`;
+    const more = d.rooms.length
+      ? info(t("Parmi les pièces qui demandent de la chaleur, c'est la plus froide qui décide. Quand plus aucune ne demande, la marge de la moins chaude permet de baisser la courbe."))
+      : "";
+    return `<div class="card"><h2>${t("Pièces suivies")}</h2>${explain}${table}${more}
       ${withLim ? `<p class="note" style="margin-top:10px">${t("« Limitante » : part des {n} mesures en cours où la pièce a fixé l'écart retenu.", { n: withLim })}</p>` : ""}
       ${d.settings.solar_filter && d.entities.weather ? `<p class="note" style="margin-top:6px">${t("Filtre solaire actif : les mesures prises par grand soleil sont ignorées ({name}).", { name: esc(name(d.entities.weather)) })}</p>` : ""}</div>`;
   }
@@ -1280,9 +1341,11 @@ class HeatingCurvePanel extends HTMLElement {
           tip: (x) => `<b>${dayLabel(x.t)}</b><div>${t("{gas} m³ · {dju} DJU (ext. {ext} °C)", { gas: fmt(x.gas, 1), dju: fmt(x.dju, 1), ext: fmt(x.ext) })}</div><div><b>${fmt(x.ratio, 3)}</b> m³/DJU</div>`,
           empty: t("Pas encore assez de jours de chauffe (au moins 2 degrés-jours par jour)."),
         })}
-        <p class="note" style="margin-top:8px">${t("Un degré-jour (DJU) mesure le besoin de chauffage : {b} °C moins la température extérieure moyenne du jour.", { b: DJU_BASE })}
-          ${t("Diviser le gaz par les DJU compare des périodes de météo différente : si le ratio baisse après un ajustement, l'économie est réelle.")}</p>
-        <p class="note">${t("Tableau Énergie de Home Assistant : sources gaz = consommations ViCare du jour, prix = entité « Prix du gaz » de l'optimiseur.")}</p>`;
+        ${info(
+          `${t("Un degré-jour (DJU) mesure le besoin de chauffage : {b} °C moins la température extérieure moyenne du jour.", { b: DJU_BASE })}
+          ${t("Diviser le gaz par les DJU compare des périodes de météo différente : si le ratio baisse après un ajustement, l'économie est réelle.")}`,
+          t("Tableau Énergie de Home Assistant : source gaz = compteur Gazpar (ou consommations ViCare), prix = entité « Prix du gaz (kWh) » de l'optimiseur, qui suit les Réglages."),
+        )}`;
     }
     return `<div class="card"><h2>${t("Consommation corrigée de la météo")}</h2>
         <p class="sub">${t("Gaz de chauffage par degré-jour sur 60 jours")}
@@ -1637,15 +1700,17 @@ class HeatingCurvePanel extends HTMLElement {
       : `<div class="empty">${t("Il faut au moins deux pièces suivies avec Better Thermostat (onglet Pièces).")}</div>`;
     const rep = this._data.report;
     return `<div class="card"><h2>${t("Bilan thermique de la maison")}</h2>
-        <p class="sub">${t("Déperditions estimées à partir du gaz consommé et de l'écart intérieur / extérieur, jour par jour (rendement supposé 95 %).")}
-          ${t("Moins de W/K = maison mieux isolée : compare les saisons avant et après des travaux.")}
-          ${t("Le seuil de chauffe est la température extérieure au-dessus de laquelle les apports gratuits (soleil, occupants, appareils) suffisent.")}</p>${thermal}
+        <p class="sub">${t("Moins de W/K = maison mieux isolée : compare les saisons avant et après des travaux.")}</p>${thermal}
+        ${info(
+          t("Déperditions estimées à partir du gaz consommé et de l'écart intérieur / extérieur, jour par jour (rendement supposé 95 %)."),
+          t("Le seuil de chauffe est la température extérieure au-dessus de laquelle les apports gratuits (soleil, occupants, appareils) suffisent."),
+        )}
         ${(this._data.overconsumption_log || []).length ? `<h2 style="margin-top:16px">${t("Jours de surconsommation")}</h2>
           <div class="table-wrap"><table><thead><tr><th>${t("Jour")}</th><th>${t("Consommé")}</th><th>${t("Attendu pour la météo")}</th></tr></thead>
           <tbody>${[...this._data.overconsumption_log].reverse().map((o) => `<tr><td>${dayLabel(o.t * 1000)}</td><td>${fmt(o.kwh, 0)} kWh</td><td>${fmt(o.expected, 0)} kWh</td></tr>`).join("")}</tbody></table></div>` : ""}</div>
       <div class="card"><h2>${t("Équilibrage des radiateurs")}</h2>
-        <p class="sub">${t("Vitesse de chauffe apprise par Better Thermostat pour chaque pièce, comparée à la médiane. Un radiateur qui chauffe beaucoup plus vite " +
-          "que les autres « vole » l'eau chaude aux pièces lentes.")}</p>${balance}</div>
+        <p class="sub">${t("Vitesse de chauffe apprise par Better Thermostat pour chaque pièce, comparée à la médiane.")}</p>${balance}
+        ${info(t("Un radiateur qui chauffe beaucoup plus vite que les autres « vole » l'eau chaude aux pièces lentes."))}</div>
       <div class="card"><h2>${t("Bilan hebdomadaire")}</h2>
         <p class="sub">${rep.enabled ? t("Envoyé chaque {day} à {time}", { day: weekdayName(rep.weekday), time: esc(String(rep.time).slice(0, 5)) }) : t("Envoi désactivé")}
           ${rep.notify ? t("sur {target} et", { target: esc(rep.notify) }) : ""} ${t("dans les notifications de Home Assistant.")}</p>
@@ -1696,7 +1761,7 @@ class HeatingCurvePanel extends HTMLElement {
         case "weekday":
           return `<select data-key="${f.key}">${opt(ch.weekday, val)}</select>`;
         case "programs":
-          return checks(f.key, ch.programs);
+          return checks(f.key, ch.programs.map((code) => ({ value: code, label: programLabel(code) })));
         case "entities":
           return checks(f.key, ch.climate);
         case "entity":
