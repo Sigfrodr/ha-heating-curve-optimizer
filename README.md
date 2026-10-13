@@ -77,3 +77,7 @@ python -m pytest tests
 # Tests unitaires + intégration Home Assistant (Linux ou WSL : le harnais HA exige Linux)
 bash tools/ha-tests.sh
 ```
+
+## Licence
+
+MIT, voir [LICENSE](LICENSE).
