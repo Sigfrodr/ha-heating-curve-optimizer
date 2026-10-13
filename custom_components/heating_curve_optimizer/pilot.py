@@ -78,6 +78,7 @@ class HeatingPilot:
             o.data["temps"] = {"comfort": comfort, "reduced": reduced}
         if o.data["schedule"] is None:
             o.data["schedule"] = self.trv_schedule_suggestion() or DEFAULT_SCHEDULE
+            o._save()
         rooms = o.cfg.get(CONF_ROOMS) or []
         if rooms:
             o._unsubs.append(async_track_state_change_event(self.hass, rooms, self._on_room_change))
