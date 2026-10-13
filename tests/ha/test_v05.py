@@ -99,3 +99,18 @@ async def test_slow_pressure_leak_alert(hass: HomeAssistant, vicare):
     await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.optimiseur_courbe_de_chauffe_alerte_chaudiere").state == "on"
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_pilot_pauses_when_boiler_off(hass: HomeAssistant, vicare):
+    writes = []
+    hass.services.async_register("climate", "set_temperature", lambda call: writes.append(call.data))
+    entry = await _pilot_entry(hass, rooms_demand=False)
+    pilot = entry.runtime_data.pilot
+    await pilot.async_set_mode("active")
+    hass.states.async_set("climate.vicare_heating", "off", {"active_vicare_program": "standby"})
+    writes.clear()
+    await pilot.async_tick()
+    assert entry.runtime_data.data["control_state"]["mode"] == "pause"
+    assert writes == []
+    await pilot.async_set_mode("off")
+    await hass.config_entries.async_unload(entry.entry_id)

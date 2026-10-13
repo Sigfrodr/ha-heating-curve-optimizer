@@ -342,6 +342,18 @@ class HeatingPilot:
                 self.o._save()
                 self.o._set_status(self.o.status)
             return
+        climate = self.hass.states.get(self.o.cfg[CONF_CLIMATE])
+        if climate is not None and climate.state == "off":
+            # Chaudière arrêtée (mode vacances, veille manuelle) : ne rien écrire
+            state = self.o.data["control_state"] or {}
+            if state.get("mode") != "pause":
+                self.o.data["control_state"] = {
+                    "mode": "pause", "setpoint": None, "since": time.time(), "at": time.time(), "rooms": {},
+                    "reason": "chaudière à l'arrêt (vacances ou veille) : pilotage en pause",
+                }
+                self.o._save()
+                self.o._set_status(self.o.status)
+            return
         decision = self.decide()
         now = time.time()
         state = self.o.data["control_state"] or {}

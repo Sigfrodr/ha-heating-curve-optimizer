@@ -262,6 +262,7 @@ const EN = {
   "Confort": "Comfort",
   "Veille (pas de demande)": "Standby (no demand)",
   "Relance anticipée": "Early start",
+  "En pause": "Paused",
   "Soleil attendu": "Sun expected",
   "Réduit": "Reduced",
   "Pilotage": "Setpoint pilot",
@@ -1334,7 +1335,7 @@ class HeatingCurvePanel extends HTMLElement {
     const st = p.state;
     const modes = [["off", t("Désactivé")], ["simulation", t("Simulation")], ["active", t("Actif")]];
     const modeColors = { confort: pal.s1, veille: pal.s2, relance: pal.s3, soleil: pal.s4, "réduit": "var(--disabled-color, #9e9e9e)" };
-    const modeLabels = { confort: t("Confort"), veille: t("Veille (pas de demande)"), relance: t("Relance anticipée"), soleil: t("Soleil attendu"), "réduit": t("Réduit") };
+    const modeLabels = { confort: t("Confort"), veille: t("Veille (pas de demande)"), relance: t("Relance anticipée"), soleil: t("Soleil attendu"), "réduit": t("Réduit"), pause: t("En pause") };
     const seg = `<div class="seg" role="radiogroup" aria-label="${t("Pilotage")}">${modes.map(([k, l]) =>
       `<button role="radio" aria-checked="${p.mode === k}" data-action="pilot-mode" data-mode="${k}">${l}</button>`).join("")}</div>`;
     const explain = {

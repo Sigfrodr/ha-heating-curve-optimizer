@@ -84,6 +84,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "aucune pièce ne demande de chaleur depuis {n} min": "no room has called for heat for {n} min",
         "soleil franc attendu : on le laisse chauffer": "strong sun expected: letting it heat the house",
         "période confort du planning": "comfort period of the schedule",
+        "chaudière à l'arrêt (vacances ou veille) : pilotage en pause":
+            "boiler switched off (holiday or standby): pilot paused",
         # équilibrage
         "chauffe bien plus vite que les autres : refermer un peu son té de réglage":
             "heats much faster than the others: close its lockshield valve a little",
