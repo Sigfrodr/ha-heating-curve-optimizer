@@ -74,6 +74,9 @@ from .messages import translate
 from .settings_spec import EMPTY, FIELDS, SECTIONS, validate
 from .insights import (
     bill_forecast,
+    calibration_ratio,
+    gazpar_monthly,
+    kwh_since_monthly,
     expected_gas_kwh,
     heating_limit,
     maintenance_status,
@@ -183,6 +186,7 @@ class HeatingCurveOptimizer:
             self.hass.bus.async_listen("mobile_app_notification_action", self._async_on_notify_action)
         )
         await self.pilot.async_start()
+        self._unsubs.append(async_call_later(self.hass, 300, self.async_update_calibration))
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
@@ -593,11 +597,65 @@ class HeatingCurveOptimizer:
         on revient en m³ avec le coefficient de conversion de la facture.
         """
         meter = self.cfg.get("gas_meter")
-        if meter:
+        vicare = self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
+        if meter and not self._meter_monthly():
             st = self.hass.states.get(meter)
             unit = (st.attributes.get("unit_of_measurement") or "") if st else ""
             return meter, (1 / float(self.cfg[CONF_KWH_PER_M3]) if "wh" in unit.lower() else 1.0)
-        return self._device_entity("sensor", "gas_summary_consumption_heating_currentday"), 1.0
+        # Compteur Gazpar : son historique dans HA ne commence qu'à son installation, on garde donc
+        # l'historique ViCare (chauffage seul) corrigé par le rapport compteur / ViCare mesuré.
+        return vicare, self.calibration_factor
+
+    @property
+    def calibration_factor(self) -> float:
+        cal = self.data.get("calibration") or {}
+        return float(cal.get("ratio") or 1.0)
+
+    def _meter_monthly(self) -> dict:
+        meter = self.cfg.get("gas_meter")
+        st = self.hass.states.get(meter) if meter else None
+        return gazpar_monthly(st.attributes.get("monthly")) if st else {}
+
+    async def async_update_calibration(self, _now=None) -> None:
+        """Rapport compteur Gazpar / relevés ViCare (chauffage + eau chaude), mois complets."""
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
+            statistics_during_period,
+        )
+
+        meter = self._meter_monthly()
+        if not meter:
+            return
+        ids = {
+            e for e in (
+                self._device_entity("sensor", "gas_summary_consumption_heating_currentday"),
+                self._device_entity("sensor", "hotwater_gas_summary_consumption_heating_currentday"),
+            ) if e
+        }
+        start = dt_util.start_of_local_day() - timedelta(days=400)
+        try:
+            stats = await get_instance(self.hass).async_add_executor_job(
+                statistics_during_period, self.hass, start, None, ids, "month", None, {"change"}
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Calibrage impossible : %s", err)
+            return
+        kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
+        estimate: dict[tuple[int, int], float] = {}
+        for rows in stats.values():
+            for r in rows:
+                when = dt_util.as_local(dt_util.utc_from_timestamp(_ts(r["start"])))
+                key = (when.year, when.month)
+                estimate[key] = estimate.get(key, 0.0) + (r.get("change") or 0) * kwh_per_m3
+        today = dt_util.now().date()
+        ratio = calibration_ratio(meter, estimate, exclude=(today.year, today.month))
+        if ratio is not None:
+            self.data["calibration"] = {
+                "ratio": round(ratio, 4),
+                "months": len([m for m in meter if m in estimate and m != (today.year, today.month)]),
+                "at": time.time(),
+            }
+            self._save()
 
     async def async_gas_kwh_since(self, start_day) -> float:
         """kWh de gaz (chauffage + eau chaude, ou compteur) consommés depuis une date."""
@@ -634,7 +692,11 @@ class HeatingCurveOptimizer:
         today = dt_util.now().date()
         while _date(start.year + 1, start.month, min(start.day, 28)) <= today:  # période en cours
             start = _date(start.year + 1, start.month, min(start.day, 28))
-        consumed = await self.async_gas_kwh_since(start)
+        monthly = self._meter_monthly()
+        consumed = (
+            kwh_since_monthly(monthly, start, today) if monthly
+            else await self.async_gas_kwh_since(start) * (1 if self.cfg.get("gas_meter") else self.calibration_factor)
+        )
         f = bill_forecast(
             start, today, consumed, float(cfg["reference_annual_kwh"]), float(cfg[CONF_GAS_PRICE]),
             float(cfg.get("fixed_annual_cost") or 0), float(cfg.get("monthly_payment") or 0),
@@ -816,6 +878,7 @@ class HeatingCurveOptimizer:
             "writes": {"used": self.writes_24h, "budget": self.write_budget},
             "gas_source": {"entity": self.gas_source[0], "to_m3": self.gas_source[1],
                            "meter": bool(self.cfg.get("gas_meter"))},
+            "calibration": self.data.get("calibration"),
             "pressure_trend": self.pressure_trend,
             "pressure_days": self.data["pressure_days"],
             "maintenance": {
@@ -979,6 +1042,7 @@ class HeatingCurveOptimizer:
 
     async def _async_daily_checks(self, _now=None) -> None:
         """Surconsommation de la veille, baisse lente de pression, échéance d'entretien."""
+        await self.async_update_calibration()
         alerts: dict[str, str] = {}
         try:
             alerts.update(await self._async_check_overconsumption())

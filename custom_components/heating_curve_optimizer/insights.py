@@ -193,7 +193,55 @@ def bill_forecast(
     return BillForecast(consumed_kwh, remaining, total, cost, payments, cost - payments, end)
 
 
+# ------------------------------------------------------------------ compteur Gazpar
+
+_MONTHS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+              "septembre", "octobre", "novembre", "décembre")
+
+
+def parse_gazpar_month(label: str) -> tuple[int, int] | None:
+    """« Octobre 2026 » → (2026, 10)."""
+    parts = str(label).strip().lower().split()
+    if len(parts) != 2 or parts[0] not in _MONTHS_FR or not parts[1].isdigit():
+        return None
+    return int(parts[1]), _MONTHS_FR.index(parts[0]) + 1
+
+
+def gazpar_monthly(rows: list[dict]) -> dict[tuple[int, int], float]:
+    """Attribut « monthly » de Gazpar → {(année, mois): kWh}."""
+    out = {}
+    for row in rows or []:
+        ym = parse_gazpar_month(row.get("time_period", ""))
+        if ym and row.get("energy_kwh") is not None:
+            out[ym] = float(row["energy_kwh"])
+    return out
+
+
+def kwh_since_monthly(monthly: dict[tuple[int, int], float], start: date, today: date) -> float:
+    """kWh consommés depuis une date, d'après des totaux mensuels (mois de début au prorata)."""
+    total = 0.0
+    for (y, m), kwh in monthly.items():
+        first = date(y, m, 1)
+        nxt = date(y + m // 12, m % 12 + 1, 1)
+        if nxt <= start or first > today:
+            continue
+        if first < start:  # mois de début de période : au prorata des jours restants
+            kwh *= (nxt - start).days / (nxt - first).days
+        total += kwh
+    return total
+
+
+def calibration_ratio(meter_kwh: dict[tuple[int, int], float], estimate_kwh: dict[tuple[int, int], float],
+                      exclude: tuple[int, int] | None = None, min_months: int = 2) -> float | None:
+    """Rapport compteur / estimation (ViCare) sur les mois complets connus des deux côtés."""
+    months = [m for m in meter_kwh if m in estimate_kwh and m != exclude and estimate_kwh[m] > 0]
+    if len(months) < min_months:
+        return None
+    est = sum(estimate_kwh[m] for m in months)
+    return sum(meter_kwh[m] for m in months) / est if est > 0 else None
+
+
 __all__ = [
-    "BillForecast", "ComputedCurve", "MONTHLY_PROFILE", "Maintenance", "bill_forecast", "write_allowed", "curve_term", "expected_gas_kwh", "heating_limit",
+    "BillForecast", "calibration_ratio", "gazpar_monthly", "kwh_since_monthly", "parse_gazpar_month", "ComputedCurve", "MONTHLY_PROFILE", "Maintenance", "bill_forecast", "write_allowed", "curve_term", "expected_gas_kwh", "heating_limit",
     "maintenance_status", "needed_supply", "overconsumption", "physical_curve", "pressure_trend", "slow_leak",
 ]

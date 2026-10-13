@@ -98,3 +98,25 @@ async def test_settings_websocket_roundtrip(hass: HomeAssistant, vicare, hass_ws
     res = await client.receive_json()
     assert not res["success"] and "hors limites" in res["error"]["message"]
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_gazpar_meter_bill_and_calibrated_source(hass: HomeAssistant, vicare, freezer):
+    freezer.move_to("2026-10-14 12:00:00+02:00")
+    hass.states.async_set("sensor.gazpar", "47228.07", {
+        "unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing",
+        "monthly": [{"time_period": "Octobre 2026", "energy_kwh": 43.69},
+                    {"time_period": "Septembre 2026", "energy_kwh": 211.0},
+                    {"time_period": "Avril 2026", "energy_kwh": 600.0}]})
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "gas_meter": "sensor.gazpar", "billing_start": "2026-04-11",
+        "reference_annual_kwh": 9235.0, "monthly_payment": 116.71, "payments_count": 11.0, "fixed_annual_cost": 353.0})
+    await hass.async_block_till_done()
+    optimizer = entry.runtime_data
+    optimizer.data["calibration"] = {"ratio": 0.86, "months": 6, "at": 0}
+    # statistiques : historique ViCare corrigé, pas le compteur (dont l'historique HA démarre à peine)
+    entity, factor = optimizer.gas_source
+    assert entity != "sensor.gazpar" and factor == 0.86
+    f = await optimizer.async_bill_forecast()
+    assert abs(f["consumed_kwh"] - round(600 * 20 / 30 + 211 + 43.69, 2)) < 0.01
+    await hass.config_entries.async_unload(entry.entry_id)

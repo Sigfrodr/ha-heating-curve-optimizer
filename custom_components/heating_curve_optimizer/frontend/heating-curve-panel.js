@@ -264,6 +264,8 @@ const EN = {
   "Relance anticipée": "Early start",
   "En pause": "Paused",
   "Confirmer": "Confirm",
+  "Relevés ViCare corrigés de {p} % d'après le compteur Gazpar ({n} mois comparés). La prévision de facture utilise directement les relevés du compteur.":
+    "ViCare readings corrected by {p} % from the Gazpar meter ({n} months compared). The bill forecast uses the meter readings directly.",
   "Réglages": "Settings",
   "Général": "General",
   "— aucun —": "— none —",
@@ -1285,6 +1287,9 @@ class HeatingCurvePanel extends HTMLElement {
     return `<div class="card"><h2>${t("Consommation corrigée de la météo")}</h2>
         <p class="sub">${t("Gaz de chauffage par degré-jour sur 60 jours")}
           <button class="btn" style="padding:2px 8px;margin-left:6px" data-action="reload-stats">${t("Actualiser")}</button></p>${body}</div>
+      ${this._data.calibration ? `<div class="card"><div class="advice" style="margin-top:0"><ha-icon icon="mdi:meter-gas-outline"></ha-icon><div>${t(
+        "Relevés ViCare corrigés de {p} % d'après le compteur Gazpar ({n} mois comparés). La prévision de facture utilise directement les relevés du compteur.",
+        { p: fmt((this._data.calibration.ratio - 1) * 100, 0, true), n: this._data.calibration.months })}</div></div></div>` : ""}
       ${this._billCard()}
       ${this._recoveryCard()}`;
   }

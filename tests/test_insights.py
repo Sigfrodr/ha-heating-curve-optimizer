@@ -95,3 +95,30 @@ def test_bill_forecast():
     # en octobre, l'été est passé : il reste l'essentiel de l'hiver
     g = bill_forecast(date(2026, 4, 11), date(2026, 10, 14), 1200, 9000, 0.1, 350, 116.71, 11)
     assert 6500 < g.remaining_kwh < 7600 and g.total_kwh == 1200 + g.remaining_kwh
+
+
+def test_gazpar_monthly_parsing_and_bill_since():
+    from insights import gazpar_monthly, kwh_since_monthly, parse_gazpar_month
+
+    assert parse_gazpar_month("Octobre 2026") == (2026, 10)
+    assert parse_gazpar_month("Août 2025") == (2025, 8)
+    assert parse_gazpar_month("Du 05/10 au 11/10") is None
+    monthly = gazpar_monthly([
+        {"time_period": "Avril 2026", "energy_kwh": 600.0},
+        {"time_period": "Mai 2026", "energy_kwh": 300.0},
+        {"time_period": "Mars 2026", "energy_kwh": 1200.0},
+        {"time_period": "Octobre 2026", "energy_kwh": 43.69},
+    ])
+    # depuis le 11 avril : 20 jours d'avril sur 30, mai entier, octobre en cours ; mars exclu
+    total = kwh_since_monthly(monthly, date(2026, 4, 11), date(2026, 10, 14))
+    assert abs(total - (600 * 20 / 30 + 300 + 43.69)) < 1e-9
+
+
+def test_calibration_ratio():
+    from insights import calibration_ratio
+
+    meter = {(2026, 7): 106.0, (2026, 8): 64.0, (2026, 9): 211.0, (2026, 10): 40.0}
+    vicare = {(2026, 7): 120.0, (2026, 8): 80.0, (2026, 9): 250.0, (2026, 10): 50.0}
+    r = calibration_ratio(meter, vicare, exclude=(2026, 10))
+    assert abs(r - (106 + 64 + 211) / (120 + 80 + 250)) < 1e-9
+    assert calibration_ratio({(2026, 9): 1.0}, {(2026, 9): 2.0}) is None  # un seul mois : pas assez
