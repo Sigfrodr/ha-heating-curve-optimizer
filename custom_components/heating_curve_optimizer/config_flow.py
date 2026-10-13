@@ -137,12 +137,7 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
         programs = list(climate.attributes.get("vicare_programs", [])) if climate else []
         current = {**DEFAULT_OPTIONS, **self.config_entry.options}
         programs = sorted(set(programs) | set(current[CONF_PROGRAMS]))
-        weekdays = [
-            selector.SelectOptionDict(value=str(i), label=label)
-            for i, label in enumerate(
-                ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
-            )
-        ]
+        weekdays = [str(i) for i in range(7)]  # libellés traduits : selector.weekday
 
         fields = {
             None: {
@@ -171,7 +166,7 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
             },
             "dhw": {
                 vol.Required(CONF_LEGIONELLA_WEEKDAY): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=weekdays)
+                    selector.SelectSelectorConfig(options=weekdays, translation_key="weekday")
                 ),
                 vol.Required(CONF_LEGIONELLA_TIME): selector.TimeSelector(),
                 vol.Required(CONF_LEGIONELLA_TEMP): _number(55, 70, 1, "°C"),
@@ -187,7 +182,7 @@ class HeatingCurveOptimizerOptionsFlow(OptionsFlow):
                 vol.Required(CONF_KWH_PER_M3): _number(8, 13, 0.01, "kWh/m³"),
                 vol.Required(CONF_WEEKLY_REPORT): selector.BooleanSelector(),
                 vol.Required(CONF_REPORT_WEEKDAY): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=weekdays)
+                    selector.SelectSelectorConfig(options=weekdays, translation_key="weekday")
                 ),
                 vol.Required(CONF_REPORT_TIME): selector.TimeSelector(),
             },

@@ -20,7 +20,7 @@ class EvaluateButton(OptimizerEntity, ButtonEntity):
     _attr_icon = "mdi:calculator-variant"
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "evaluate", "Évaluer maintenant")
+        super().__init__(optimizer, "evaluate")
 
     async def async_press(self) -> None:
         await self.optimizer.async_evaluate()
@@ -30,7 +30,7 @@ class MaintenanceDoneButton(OptimizerEntity, ButtonEntity):
     _attr_icon = "mdi:wrench-check"
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "maintenance_done", "Entretien effectué")
+        super().__init__(optimizer, "maintenance_done")
 
     async def async_press(self) -> None:
         await self.optimizer.async_set_maintenance()

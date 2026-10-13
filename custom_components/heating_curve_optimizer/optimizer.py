@@ -70,6 +70,7 @@ from .analysis import (
 )
 from .control import balance_rooms, gas_cost, thermal_balance, weekly_report
 from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
+from .messages import translate
 from .insights import (
     expected_gas_kwh,
     heating_limit,
@@ -191,6 +192,10 @@ class HeatingCurveOptimizer:
         self._store.async_delay_save(lambda: self.data, 30)
 
     # -------------------------------------------------------------- entités
+
+    def tr(self, text: str) -> str:
+        """Message traduit dans la langue de Home Assistant."""
+        return translate(text, self.hass.config.language)
 
     @property
     def auto(self) -> bool:
@@ -547,7 +552,7 @@ class HeatingCurveOptimizer:
         return {
             "days": days,
             "recoveries": [r.__dict__ for r in recoveries],
-            "advice": recovery_advice(recoveries),
+            "advice": self.tr(recovery_advice(recoveries)),
         }
 
     # ------------------------------------------------------- statistiques
@@ -597,7 +602,7 @@ class HeatingCurveOptimizer:
             rooms.append((entity_id, _float(st.attributes.get("heating_power")) if st else None))
         return {
             "thermal": balances,
-            "rooms": [r.__dict__ for r in balance_rooms(rooms)],
+            "rooms": [{**r.__dict__, "advice": self.tr(r.advice)} for r in balance_rooms(rooms)],
             "kwh_per_m3": kwh_per_m3,
         }
 
@@ -624,10 +629,10 @@ class HeatingCurveOptimizer:
             _, cost = gas_cost(gas, float(self.cfg[CONF_KWH_PER_M3]), float(self.cfg[CONF_GAS_PRICE]))
         ratio_prev = gas_prev / dju_prev if gas_prev and dju_prev >= 5 else None
         adjustments = sum(1 for h in self.data["history"] if h["t"] >= now - 7 * 86400)
-        return weekly_report(
+        return self.tr(weekly_report(
             gas, cost, dju, ratio_prev, adjustments,
             self.pilot.standby_hours(now - 7 * 86400), list(self.data["alerts"].values()),
-        )
+        ))
 
     async def async_send_weekly_report(self) -> str:
         text = await self.async_weekly_report_text()
@@ -636,9 +641,14 @@ class HeatingCurveOptimizer:
 
     def snapshot(self) -> dict:
         """Données pour le panneau."""
+        tr = self.tr
+        pilot = self.pilot.snapshot()
+        if pilot.get("state"):
+            pilot["state"] = {**pilot["state"], "reason": tr(pilot["state"]["reason"])}
         return {
+            "language": self.hass.config.language,
             "entry_id": self.entry.entry_id,
-            "status": self.status,
+            "status": tr(self.status),
             "auto": self.auto,
             "entities": {
                 "climate": self.cfg[CONF_CLIMATE],
@@ -663,7 +673,7 @@ class HeatingCurveOptimizer:
                 "weather": self.cfg.get(CONF_WEATHER) or None,
             },
             "rooms": list(self.cfg.get(CONF_ROOMS) or []),
-            "alerts": self.data["alerts"],
+            "alerts": {k: tr(v) for k, v in self.data["alerts"].items()},
             "burner_24h": (
                 {
                     "starts": b.starts,
@@ -674,7 +684,7 @@ class HeatingCurveOptimizer:
                 if (b := self.burner)
                 else None
             ),
-            "pilot": self.pilot.snapshot(),
+            "pilot": pilot,
             "computed_curve": self.computed_curve(),
             "pressure_trend": self.pressure_trend,
             "pressure_days": self.data["pressure_days"],
@@ -731,8 +741,11 @@ class HeatingCurveOptimizer:
                 **{k: float(self.cfg[k]) for k in TUNING_KEYS},
             },
             "samples": self.data["samples"],
-            "last_proposal": self.data["last_proposal"],
-            "history": self.data["history"],
+            "last_proposal": (
+                {**self.data["last_proposal"], "reason": tr(self.data["last_proposal"]["reason"])}
+                if self.data["last_proposal"] else None
+            ),
+            "history": [{**h, "reason": tr(h["reason"])} for h in self.data["history"]],
             "last_change": self.data["last_change"],
         }
 
@@ -791,6 +804,8 @@ class HeatingCurveOptimizer:
         self, title: str, message: str, suffix: str = "", actions: list[dict] | None = None
     ) -> None:
         notification_id = f"{DOMAIN}_{self.entry.entry_id}" + (f"_{suffix}" if suffix else "")
+        title, message = self.tr(title), self.tr(message)
+        actions = [{**a, "title": self.tr(a["title"])} for a in actions or []]
         persistent_notification.async_create(
             self.hass, message, title=title, notification_id=notification_id
         )

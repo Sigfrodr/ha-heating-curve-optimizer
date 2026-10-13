@@ -13,14 +13,14 @@ class OptimizerEntity(Entity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, optimizer: HeatingCurveOptimizer, key: str, name: str) -> None:
+    def __init__(self, optimizer: HeatingCurveOptimizer, key: str) -> None:
         self.optimizer = optimizer
         entry_id = optimizer.entry.entry_id
         self._attr_unique_id = f"{entry_id}_{key}"
-        self._attr_name = name
+        self._attr_translation_key = key  # nom traduit (translations/<langue>.json, section entity)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
-            name="Optimiseur courbe de chauffe",
+            translation_key="optimizer",
             entry_type=DeviceEntryType.SERVICE,
         )
 

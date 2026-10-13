@@ -9,8 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import OptimizerConfigEntry
 from .entity import OptimizerEntity
 
-LABELS = {"off": "Désactivé", "simulation": "Simulation", "active": "Actif"}
-MODES = {label: mode for mode, label in LABELS.items()}
+MODES = ["off", "simulation", "active"]
 
 
 async def async_setup_entry(
@@ -21,14 +20,14 @@ async def async_setup_entry(
 
 class ControlModeSelect(OptimizerEntity, SelectEntity):
     _attr_icon = "mdi:home-thermometer"
-    _attr_options = list(LABELS.values())
+    _attr_options = MODES
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "control_mode", "Pilotage de la consigne")
+        super().__init__(optimizer, "control_mode")
 
     @property
     def current_option(self) -> str:
-        return LABELS[self.optimizer.pilot.mode]
+        return self.optimizer.pilot.mode
 
     async def async_select_option(self, option: str) -> None:
-        await self.optimizer.pilot.async_set_mode(MODES[option])
+        await self.optimizer.pilot.async_set_mode(option)

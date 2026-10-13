@@ -275,5 +275,5 @@ def weekly_report(
     lines.append(f"Ajustements de courbe : {adjustments}.")
     if standby_hours:
         lines.append(f"Chaudière mise en veille faute de demande : {standby_hours:.0f} h.")
-    lines.append("Alertes : " + ("; ".join(alerts) if alerts else "aucune") + ".")
+    lines.append("Alertes : " + ("; ".join(a.rstrip(".") for a in alerts) if alerts else "aucune") + ".")
     return "\n".join(lines)

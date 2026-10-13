@@ -38,11 +38,11 @@ class StatusSensor(OptimizerEntity, SensorEntity):
     _attr_icon = "mdi:chart-bell-curve-cumulative"
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "status", "État")
+        super().__init__(optimizer, "status")
 
     @property
     def native_value(self) -> str:
-        return self.optimizer.status
+        return self.optimizer.tr(self.optimizer.status)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -62,7 +62,7 @@ class MeanErrorSensor(OptimizerEntity, SensorEntity):
     _attr_suggested_display_precision = 2
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "mean_error", "Écart moyen ambiance - consigne")
+        super().__init__(optimizer, "mean_error")
 
     @property
     def native_value(self) -> float | None:
@@ -74,7 +74,7 @@ class SampleCountSensor(OptimizerEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "samples", "Échantillons")
+        super().__init__(optimizer, "samples")
 
     @property
     def native_value(self) -> int:
@@ -86,7 +86,7 @@ class BurnerStartsSensor(OptimizerEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "burner_starts_24h", "Démarrages brûleur (24 h)")
+        super().__init__(optimizer, "burner_starts_24h")
 
     @property
     def native_value(self) -> int | None:
@@ -101,7 +101,7 @@ class CycleLengthSensor(OptimizerEntity, SensorEntity):
     _attr_suggested_display_precision = 0
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "cycle_minutes_24h", "Durée moyenne de cycle brûleur (24 h)")
+        super().__init__(optimizer, "cycle_minutes_24h")
 
     @property
     def native_value(self) -> float | None:
@@ -114,7 +114,7 @@ class PilotSetpointSensor(OptimizerEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "pilot_setpoint", "Consigne pilotée")
+        super().__init__(optimizer, "pilot_setpoint")
 
     @property
     def native_value(self) -> float | None:
@@ -127,7 +127,7 @@ class PilotSetpointSensor(OptimizerEntity, SensorEntity):
         return {
             "pilotage": self.optimizer.pilot.mode,
             "mode": state.get("mode"),
-            "raison": state.get("reason"),
+            "raison": self.optimizer.tr(state["reason"]) if state.get("reason") else None,
         }
 
 
@@ -140,7 +140,7 @@ class GasPriceSensor(OptimizerEntity, SensorEntity):
     _attr_suggested_display_precision = 3
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "gas_price", "Prix du gaz")
+        super().__init__(optimizer, "gas_price")
 
     @property
     def native_value(self) -> float:
@@ -157,13 +157,13 @@ class GasCostTodaySensor(OptimizerEntity, SensorEntity):
     _attr_suggested_display_precision = 2
 
     KEYS = {
-        "heating": ("gas_summary_consumption_heating_currentday", "Coût du gaz chauffage (aujourd'hui)"),
-        "dhw": ("hotwater_gas_summary_consumption_heating_currentday", "Coût du gaz eau chaude (aujourd'hui)"),
+        "heating": "gas_summary_consumption_heating_currentday",
+        "dhw": "hotwater_gas_summary_consumption_heating_currentday",
     }
 
     def __init__(self, optimizer, kind: str) -> None:
-        self._source_key, name = self.KEYS[kind]
-        super().__init__(optimizer, f"gas_cost_today_{kind}", name)
+        self._source_key = self.KEYS[kind]
+        super().__init__(optimizer, f"gas_cost_today_{kind}")
 
     @property
     def _source(self) -> str | None:

@@ -30,6 +30,7 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 def fake_frontend(hass):
     """Le paquet du frontend n'est pas installé avec le harnais : on le déclare chargé."""
     hass.config.components.update({"frontend", "panel_custom", "websocket_api"})
+    hass.config.language = "fr"  # identifiants et textes attendus en français
 
 
 @pytest.fixture

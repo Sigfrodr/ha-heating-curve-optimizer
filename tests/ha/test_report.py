@@ -16,6 +16,7 @@ def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations):
 def fake_frontend(recorder_mock, hass):
     """Remplace celui du conftest : le recorder doit être demandé avant hass."""
     hass.config.components.update({"frontend", "panel_custom", "websocket_api"})
+    hass.config.language = "fr"  # identifiants et textes attendus en français
 
 
 async def test_weekly_report_text(hass: HomeAssistant, vicare):

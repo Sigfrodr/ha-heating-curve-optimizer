@@ -20,7 +20,7 @@ class BoilerAlertSensor(OptimizerEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "alert", "Alerte chaudière")
+        super().__init__(optimizer, "alert")
 
     @property
     def is_on(self) -> bool:
@@ -28,4 +28,4 @@ class BoilerAlertSensor(OptimizerEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"alertes": list(self.optimizer.data["alerts"].values())}
+        return {"alertes": [self.optimizer.tr(a) for a in self.optimizer.data["alerts"].values()]}

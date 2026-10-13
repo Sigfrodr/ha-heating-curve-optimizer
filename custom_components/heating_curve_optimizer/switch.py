@@ -20,7 +20,7 @@ class AutoAdjustSwitch(OptimizerEntity, SwitchEntity):
     _attr_icon = "mdi:auto-fix"
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "auto", "Ajustement automatique")
+        super().__init__(optimizer, "auto")
 
     @property
     def is_on(self) -> bool:
@@ -37,7 +37,7 @@ class LegionellaSwitch(OptimizerEntity, SwitchEntity):
     _attr_icon = "mdi:water-thermometer"
 
     def __init__(self, optimizer) -> None:
-        super().__init__(optimizer, "legionella", "Montée anti-légionelle hebdomadaire")
+        super().__init__(optimizer, "legionella")
 
     @property
     def is_on(self) -> bool:

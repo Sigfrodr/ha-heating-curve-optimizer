@@ -2,99 +2,183 @@
   "config": {
     "step": {
       "user": {
-        "title": "Optimiseur de courbe de chauffe",
-        "description": "Choisis les entités ViCare de la chaudière. L'optimiseur démarre en simulation : il ne modifie rien tant que l'interrupteur « Ajustement automatique » est éteint.",
+        "title": "Heating curve optimizer",
+        "description": "Pick the boiler's ViCare entities. The optimizer starts in dry-run mode: it changes nothing while the \"Automatic adjustment\" switch is off.",
         "data": {
-          "climate": "Circuit de chauffage (climate)",
-          "outside_temperature": "Température extérieure",
-          "slope": "Pente de la courbe de chauffe",
-          "shift": "Décalage de la courbe de chauffe",
-          "room_temperature": "Température ambiante (facultatif, sinon celle du climate)"
+          "climate": "Heating circuit (climate)",
+          "outside_temperature": "Outdoor temperature",
+          "slope": "Heating curve slope",
+          "shift": "Heating curve shift",
+          "room_temperature": "Room temperature (optional, otherwise the climate's)"
         }
       }
     },
     "abort": {
-      "already_configured": "Ce circuit de chauffage est déjà configuré."
+      "already_configured": "This heating circuit is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Réglages de l'optimiseur",
+        "title": "Optimizer settings",
         "data": {
-          "programs": "Programmes ViCare pris en compte",
-          "heating_limit": "Pas de collecte au-dessus de cette T° extérieure",
-          "evaluate_at": "Heure d'évaluation quotidienne",
-          "notify": "Service de notification (ex. mobile_app_mon_telephone)"
+          "programs": "ViCare programs taken into account",
+          "heating_limit": "No sampling above this outdoor temperature",
+          "evaluate_at": "Daily evaluation time",
+          "notify": "Notification service (e.g. mobile_app_my_phone)"
         },
         "sections": {
           "rooms_weather": {
-            "name": "Pièces et météo",
-            "description": "Mode multi-pièces : la courbe est réglée pour la pièce la plus difficile à chauffer parmi celles qui demandent de la chaleur. Le filtre solaire ignore les mesures quand le soleil chauffe la maison.",
+            "name": "Rooms and weather",
+            "description": "Multi-room mode: the curve is tuned for the hardest room to heat among those calling for heat. The solar filter ignores samples while the sun heats the house.",
             "data": {
-              "rooms": "Thermostats de pièces (Better Thermostat, Versatile Thermostat…)",
-              "weather": "Météo (couverture nuageuse)",
-              "solar_filter": "Ignorer les mesures par grand soleil",
-              "solar_cloud_max": "Couverture nuageuse sous laquelle on ignore",
-              "solar_min_elevation": "Hauteur du soleil à partir de laquelle on ignore"
+              "rooms": "Room thermostats (Better Thermostat, Versatile Thermostat…)",
+              "weather": "Weather (cloud coverage)",
+              "solar_filter": "Ignore samples in strong sunshine",
+              "solar_cloud_max": "Ignore below this cloud coverage",
+              "solar_min_elevation": "Ignore above this sun elevation"
             }
           },
           "pilot": {
-            "name": "Pilotage de la consigne",
-            "description": "Activé depuis le panneau (onglet Planning) ou l'entité « Pilotage de la consigne ». En période confort, la consigne passe en veille quand aucune pièce ne demande de chaleur.",
+            "name": "Setpoint pilot",
+            "description": "Enabled from the panel (Schedule tab) or the \"Setpoint pilot\" entity. During comfort periods the setpoint drops to standby when no room calls for heat.",
             "data": {
-              "standby_temp": "Consigne de veille",
-              "demand_delay_minutes": "Délai sans demande avant la veille",
-              "sun_anticipation": "Baisser d'1 °C quand un soleil franc est prévu"
+              "standby_temp": "Standby setpoint",
+              "demand_delay_minutes": "Delay without demand before standby",
+              "sun_anticipation": "Lower by 1 °C when strong sun is forecast"
             }
           },
           "costs_report": {
-            "name": "Coûts et rapport hebdomadaire",
-            "description": "Prix du kWh de gaz (facture, abonnement exclu) et pouvoir calorifique (kWh par m³, indiqué sur la facture, souvent 10,5 à 11,5).",
+            "name": "Costs and weekly report",
+            "description": "Gas price per kWh (from your bill, standing charge excluded) and calorific value (kWh per m³, on the bill, usually 10.5 to 11.5).",
             "data": {
-              "gas_price": "Prix du gaz",
-              "kwh_per_m3": "Conversion m³ → kWh",
-              "weekly_report": "Envoyer un bilan chaque semaine",
-              "report_weekday": "Jour du bilan",
-              "report_time": "Heure du bilan"
+              "gas_price": "Gas price",
+              "kwh_per_m3": "m³ → kWh conversion",
+              "weekly_report": "Send a weekly report",
+              "report_weekday": "Report day",
+              "report_time": "Report time"
             }
           },
           "alerts": {
-            "name": "Alertes chaudière",
+            "name": "Boiler alerts",
+            "description": "Pressure, unreachable boiler, frost protection, short cycling, overconsumption versus the thermal model, slow pressure loss, service due date (\"Service done\" button).",
             "data": {
-              "min_pressure": "Pression d'eau minimum",
-              "short_cycle_minutes": "Durée de cycle brûleur sous laquelle alerter"
+              "min_pressure": "Minimum water pressure",
+              "short_cycle_minutes": "Alert below this burner cycle length",
+              "overconsumption_ratio": "Overconsumption: alert above (× forecast)",
+              "maintenance_months": "Interval between services",
+              "daily_check_time": "Daily checks time"
             }
           },
           "dhw": {
-            "name": "Eau chaude : montée anti-légionelle",
-            "description": "Activée par l'interrupteur « Montée anti-légionelle hebdomadaire ». La consigne d'eau chaude est montée puis remise à sa valeur.",
+            "name": "Hot water: anti-legionella boost",
+            "description": "Enabled by the \"Weekly anti-legionella boost\" switch. The hot water setpoint is raised, then restored.",
             "data": {
-              "legionella_weekday": "Jour",
-              "legionella_time": "Heure",
-              "legionella_temp": "Température",
-              "legionella_minutes": "Durée"
+              "legionella_weekday": "Day",
+              "legionella_time": "Time",
+              "legionella_temp": "Temperature",
+              "legionella_minutes": "Duration"
             }
           },
           "algorithm": {
-            "name": "Algorithme (avancé)",
+            "name": "Algorithm (advanced)",
             "data": {
-              "settle_minutes": "Stabilisation après changement de programme / consigne / courbe",
-              "sample_minutes": "Intervalle de mesure",
-              "min_samples": "Échantillons minimum avant évaluation",
-              "max_age_days": "Durée de conservation des mesures",
-              "damping": "Part de la correction appliquée",
-              "max_shift_step": "Variation max du décalage par ajustement",
-              "max_slope_step": "Variation max de la pente par ajustement",
-              "shift_min": "Décalage minimum",
-              "shift_max": "Décalage maximum",
-              "slope_min": "Pente minimum",
-              "slope_max": "Pente maximum",
-              "deadband": "Écart toléré",
-              "min_outside_spread": "Amplitude de T° ext. nécessaire pour modifier la pente"
+              "settle_minutes": "Settling time after a program / setpoint / curve change",
+              "sample_minutes": "Sampling interval",
+              "min_samples": "Minimum samples before evaluating",
+              "max_age_days": "Sample retention",
+              "damping": "Share of the correction applied",
+              "max_shift_step": "Max shift change per adjustment",
+              "max_slope_step": "Max slope change per adjustment",
+              "shift_min": "Minimum shift",
+              "shift_max": "Maximum shift",
+              "slope_min": "Minimum slope",
+              "slope_max": "Maximum slope",
+              "deadband": "Tolerated deviation",
+              "min_outside_spread": "Outdoor temperature range needed to change the slope"
             }
           }
         }
+      }
+    }
+  },
+  "device": {
+    "optimizer": {
+      "name": "Heating curve optimizer"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "mean_error": {
+        "name": "Mean room - setpoint deviation"
+      },
+      "samples": {
+        "name": "Samples"
+      },
+      "burner_starts_24h": {
+        "name": "Burner starts (24 h)"
+      },
+      "cycle_minutes_24h": {
+        "name": "Average burner cycle (24 h)"
+      },
+      "pilot_setpoint": {
+        "name": "Piloted setpoint"
+      },
+      "gas_price": {
+        "name": "Gas price"
+      },
+      "gas_cost_today_heating": {
+        "name": "Heating gas cost (today)"
+      },
+      "gas_cost_today_dhw": {
+        "name": "Hot water gas cost (today)"
+      }
+    },
+    "switch": {
+      "auto": {
+        "name": "Automatic adjustment"
+      },
+      "legionella": {
+        "name": "Weekly anti-legionella boost"
+      }
+    },
+    "button": {
+      "evaluate": {
+        "name": "Evaluate now"
+      },
+      "maintenance_done": {
+        "name": "Service done"
+      }
+    },
+    "binary_sensor": {
+      "alert": {
+        "name": "Boiler alert"
+      }
+    },
+    "select": {
+      "control_mode": {
+        "name": "Setpoint pilot",
+        "state": {
+          "off": "Off",
+          "simulation": "Dry run",
+          "active": "Active"
+        }
+      }
+    }
+  },
+  "selector": {
+    "weekday": {
+      "options": {
+        "0": "Monday",
+        "1": "Tuesday",
+        "2": "Wednesday",
+        "3": "Thursday",
+        "4": "Friday",
+        "5": "Saturday",
+        "6": "Sunday"
       }
     }
   }
