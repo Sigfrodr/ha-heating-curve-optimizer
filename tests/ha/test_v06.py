@@ -120,3 +120,29 @@ async def test_gazpar_meter_bill_and_calibrated_source(hass: HomeAssistant, vica
     f = await optimizer.async_bill_forecast()
     assert abs(f["consumed_kwh"] - round(600 * 20 / 30 + 211 + 43.69, 2)) < 0.01
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_internal_gains_websocket(hass: HomeAssistant, vicare, hass_ws_client):
+    from homeassistant.components import websocket_api
+
+    from custom_components.heating_curve_optimizer import panel
+
+    hass.states.async_set("climate.cuisine", "heat", {"current_temperature": 20, "temperature": 19, "heating_power": 0.05})
+    hass.states.async_set("climate.salon", "heat", {"current_temperature": 20, "temperature": 19, "heating_power": 0.010})
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "rooms": ["climate.salon", "climate.cuisine"]})
+    await hass.async_block_till_done()
+    websocket_api.async_register_command(hass, panel.ws_set_internal_gains)
+    async def no_stats(days):
+        return []
+
+    entry.runtime_data.async_daily_stats = no_stats  # pas de recorder dans ce test
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "heating_curve_optimizer/set_internal_gains",
+                                    "entity_id": "climate.cuisine", "enabled": True})
+    res = await client.receive_json()
+    assert res["success"], res
+    cuisine = next(r for r in res["result"]["rooms"] if r["entity_id"] == "climate.cuisine")
+    assert cuisine["internal_gains"] and "à confirmer" in cuisine["advice"]
+    assert entry.runtime_data.data["internal_gains"] == ["climate.cuisine"]
+    await hass.config_entries.async_unload(entry.entry_id)

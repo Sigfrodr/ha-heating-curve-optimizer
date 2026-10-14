@@ -225,26 +225,38 @@ class RoomBalance:
     heating_power: float
     relative: float  # par rapport à la médiane des pièces
     advice: str
+    internal_gains: bool = False
 
 
-def balance_rooms(rooms: list[tuple[str, float | None]]) -> list[RoomBalance]:
-    """Compare la puissance de chauffe apprise (Better Thermostat) de chaque pièce."""
+def balance_rooms(
+    rooms: list[tuple[str, float | None]], internal_gains: set[str] | frozenset[str] = frozenset()
+) -> list[RoomBalance]:
+    """Compare la puissance de chauffe apprise (Better Thermostat) de chaque pièce.
+
+    Pièces « avec apports internes » (cuisine, poêle…) : leur vitesse de chauffe est gonflée par ces
+    apports ; elles sont exclues de la médiane (s'il reste au moins deux autres pièces) et un écart
+    vers le haut n'est qu'à confirmer.
+    """
     known = [(e, p) for e, p in rooms if p and p > 0]
     if len(known) < 2:
         return []
-    powers = sorted(p for _, p in known)
+    reference = [p for e, p in known if e not in internal_gains]
+    powers = sorted(reference if len(reference) >= 2 else [p for _, p in known])
     mid = len(powers) // 2
     med = powers[mid] if len(powers) % 2 else (powers[mid - 1] + powers[mid]) / 2
     result = []
     for entity_id, p in known:
         rel = p / med
-        if rel >= 1.6:
+        gains = entity_id in internal_gains
+        if rel >= 1.6 and gains:
+            advice = "à confirmer : la cuisson ou une autre source de chaleur peut gonfler la mesure"
+        elif rel >= 1.6:
             advice = "chauffe bien plus vite que les autres : refermer un peu son té de réglage"
         elif rel <= 0.6:
             advice = "chauffe bien plus lentement : ouvrir son té de réglage, purger, ou radiateur trop petit"
         else:
             advice = "équilibrée"
-        result.append(RoomBalance(entity_id, p, rel, advice))
+        result.append(RoomBalance(entity_id, p, rel, advice, gains))
     return result
 
 

@@ -369,6 +369,12 @@ const EN = {
   "Puissance de chauffe relative": "Relative heating power",
   "Conseil": "Advice",
   "{v} % de la médiane": "{v} % of the median",
+  "Apports internes": "Internal gains",
+  "apports internes": "internal gains",
+  "aucun": "none",
+  "Cliquer pour indiquer une pièce chauffée aussi par la cuisson, un poêle…": "Click to mark a room also heated by cooking, a stove…",
+  "Cochez « apports internes » pour une pièce chauffée aussi par autre chose que son radiateur (cuisine, poêle, cheminée) : elle est alors exclue de la médiane et un écart vers le haut n'est qu'à confirmer.":
+    "Mark « internal gains » for a room also heated by something other than its radiator (kitchen, stove, fireplace): it is then left out of the median and a high value only needs confirming.",
   "Il faut au moins deux pièces suivies avec Better Thermostat (onglet Pièces).":
     "At least two rooms monitored with Better Thermostat are needed (Rooms tab).",
   "Bilan thermique de la maison": "House heat balance",
@@ -613,6 +619,7 @@ tr:last-child td { border-bottom:none; }
 .chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; border-radius:10px; padding:2px 8px;
   background:var(--secondary-background-color); color:var(--secondary-text-color); white-space:nowrap; }
 .chip.on { background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); color:var(--primary-text-color); }
+button.chip { border:0; font:inherit; font-size:12px; cursor:pointer; }
 .chip.lim { background:color-mix(in srgb, var(--primary-color) 18%, transparent); color:var(--primary-text-color); }
 .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:12px; }
 .kpi .v { font-size:22px; font-weight:500; font-variant-numeric:tabular-nums; }
@@ -963,6 +970,16 @@ class HeatingCurvePanel extends HTMLElement {
       } catch (err) {
         this._toast(t("Échec : {msg}", { msg: err?.message || err }));
       }
+    } else if (a === "toggle-gains") {
+      try {
+        const diag = await this._hass.callWS({
+          type: `${DOMAIN}/set_internal_gains`, entity_id: el.dataset.entity, enabled: el.dataset.value === "1",
+        });
+        this._diag = { ...diag, report: this._diag?.report };
+      } catch (err) {
+        this._toast(t("Échec : {msg}", { msg: err?.message || err }));
+      }
+      this._render();
     } else if (a === "reload-diag") {
       this._diag = null;
       this._render();
@@ -1693,9 +1710,11 @@ class HeatingCurvePanel extends HTMLElement {
     const rooms = g.rooms || [];
     const maxRel = Math.max(1.8, ...rooms.map((r) => r.relative));
     const balance = rooms.length
-      ? `<div class="table-wrap"><table><thead><tr><th>${t("Pièce")}</th><th>${t("Puissance de chauffe relative")}</th><th>${t("Conseil")}</th></tr></thead>
+      ? `<div class="table-wrap"><table><thead><tr><th>${t("Pièce")}</th><th>${t("Puissance de chauffe relative")}</th><th>${t("Apports internes")}</th><th>${t("Conseil")}</th></tr></thead>
         <tbody>${rooms.map((r) => `<tr><td>${esc(name(r.entity_id))}</td>
           <td><div class="bar"><div style="width:${(r.relative / maxRel) * 100}%;background:${pal.s1}"></div></div>${t("{v} % de la médiane", { v: fmt(r.relative * 100, 0) })}</td>
+          <td><button class="chip${r.internal_gains ? " on" : ""}" data-action="toggle-gains" data-entity="${esc(r.entity_id)}" data-value="${r.internal_gains ? "0" : "1"}"
+            title="${esc(t("Cliquer pour indiquer une pièce chauffée aussi par la cuisson, un poêle…"))}" aria-pressed="${r.internal_gains ? "true" : "false"}">${r.internal_gains ? t("apports internes") : t("aucun")}</button></td>
           <td style="white-space:normal">${esc(r.advice)}</td></tr>`).join("")}</tbody></table></div>`
       : `<div class="empty">${t("Il faut au moins deux pièces suivies avec Better Thermostat (onglet Pièces).")}</div>`;
     const rep = this._data.report;
@@ -1710,7 +1729,10 @@ class HeatingCurvePanel extends HTMLElement {
           <tbody>${[...this._data.overconsumption_log].reverse().map((o) => `<tr><td>${dayLabel(o.t * 1000)}</td><td>${fmt(o.kwh, 0)} kWh</td><td>${fmt(o.expected, 0)} kWh</td></tr>`).join("")}</tbody></table></div>` : ""}</div>
       <div class="card"><h2>${t("Équilibrage des radiateurs")}</h2>
         <p class="sub">${t("Vitesse de chauffe apprise par Better Thermostat pour chaque pièce, comparée à la médiane.")}</p>${balance}
-        ${info(t("Un radiateur qui chauffe beaucoup plus vite que les autres « vole » l'eau chaude aux pièces lentes."))}</div>
+        ${info(
+          t("Un radiateur qui chauffe beaucoup plus vite que les autres « vole » l'eau chaude aux pièces lentes."),
+          t("Cochez « apports internes » pour une pièce chauffée aussi par autre chose que son radiateur (cuisine, poêle, cheminée) : elle est alors exclue de la médiane et un écart vers le haut n'est qu'à confirmer."),
+        )}</div>
       <div class="card"><h2>${t("Bilan hebdomadaire")}</h2>
         <p class="sub">${rep.enabled ? t("Envoyé chaque {day} à {time}", { day: weekdayName(rep.weekday), time: esc(String(rep.time).slice(0, 5)) }) : t("Envoi désactivé")}
           ${rep.notify ? t("sur {target} et", { target: esc(rep.notify) }) : ""} ${t("dans les notifications de Home Assistant.")}</p>

@@ -93,6 +93,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "chauffe bien plus lentement : ouvrir son té de réglage, purger, ou radiateur trop petit":
             "heats much more slowly: open its lockshield valve, bleed it, or the radiator is too small",
         "équilibrée": "balanced",
+        "à confirmer : la cuisson ou une autre source de chaleur peut gonfler la mesure":
+            "to be confirmed: cooking or another heat source can inflate the measurement",
         # rapport hebdomadaire
         "Gaz chauffage : {x} m³ (≈ {y} €).": "Heating gas: {x} m³ (≈ €{y}).",
         "Gaz chauffage : {x} m³.": "Heating gas: {x} m³.",

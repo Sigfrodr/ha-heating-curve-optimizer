@@ -70,7 +70,8 @@ Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus
   **entretien annuel** à prévoir (bouton « Entretien effectué »).
 - **Bilan thermique** : déperditions de la maison en W/K par saison de chauffe, et **seuil de chauffe**
   (T° extérieure au-dessus de laquelle les apports gratuits suffisent), applicable en un clic.
-- **Équilibrage des radiateurs** à partir de la puissance de chauffe apprise par Better Thermostat.
+- **Équilibrage des radiateurs** à partir de la puissance de chauffe apprise par Better Thermostat ; les pièces
+  marquées « apports internes » (cuisine, poêle) sont exclues de la médiane et leur écart n'est qu'à confirmer.
 - **Bilan hebdomadaire** par notification.
 
 ![Onglet Diagnostic](docs/screenshots/fr-diag.png)

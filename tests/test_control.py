@@ -133,3 +133,12 @@ def test_weekly_report():
     txt = weekly_report(20.0, 22.5, 80, 0.3, 1, 12, [])
     assert "20.0 m³" in txt and "22.50 €" in txt and "0.250 m³ par degré-jour (-17 %" in txt
     assert "veille faute de demande : 12 h" in txt and "Alertes : aucune." in txt
+
+
+def test_balance_rooms_internal_gains():
+    rooms = [("parents", 0.010), ("eliana", 0.0067), ("cuisine", 0.0169)]
+    res = {r.entity_id: r for r in balance_rooms(rooms, {"cuisine"})}
+    # cuisine exclue de la médiane (moyenne des deux autres), conseil à confirmer
+    assert abs(res["parents"].relative - 0.010 / 0.00835) < 1e-9
+    assert res["cuisine"].internal_gains and "à confirmer" in res["cuisine"].advice
+    assert "refermer" in {r.entity_id: r for r in balance_rooms(rooms)}["cuisine"].advice

@@ -830,7 +830,10 @@ class HeatingCurveOptimizer:
             rooms.append((entity_id, _float(st.attributes.get("heating_power")) if st else None))
         return {
             "thermal": balances,
-            "rooms": [{**r.__dict__, "advice": self.tr(r.advice)} for r in balance_rooms(rooms)],
+            "rooms": [
+                {**r.__dict__, "advice": self.tr(r.advice)}
+                for r in balance_rooms(rooms, set(self.data.get("internal_gains") or []))
+            ],
             "kwh_per_m3": kwh_per_m3,
         }
 
@@ -1159,6 +1162,16 @@ class HeatingCurveOptimizer:
         self.data["daily_alerts"].pop("maintenance", None)
         self._save()
         self._set_status(self.status)
+
+    def set_internal_gains(self, entity_id: str, enabled: bool) -> None:
+        """Marque une pièce comme ayant des apports internes (cuisine…) pour l'équilibrage."""
+        gains = set(self.data.get("internal_gains") or [])
+        if enabled:
+            gains.add(entity_id)
+        else:
+            gains.discard(entity_id)
+        self.data["internal_gains"] = sorted(gains)
+        self._save()
 
     # ------------------------------------------------------- courbe calculée et seuil
 

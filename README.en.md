@@ -68,7 +68,8 @@ Safeguards: at least 5 min between writes, at most 48 boiler writes per day.
   (4-week trend: small leak, expansion vessel), **annual service** due ("Service done" button).
 - **Thermal balance**: house heat loss in W/K per heating season, and **heating limit** (outdoor temperature
   above which free gains are enough), applicable in one click.
-- **Radiator balancing** from the heating power learned by Better Thermostat.
+- **Radiator balancing** from the heating power learned by Better Thermostat; rooms marked "internal gains"
+  (kitchen, stove) are left out of the median and their deviation only needs confirming.
 - **Weekly report** by notification.
 
 ![Diagnostics tab](docs/screenshots/en-diag.png)

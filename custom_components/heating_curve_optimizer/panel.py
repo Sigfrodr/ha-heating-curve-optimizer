@@ -43,6 +43,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_weekly_report)
         websocket_api.async_register_command(hass, ws_set_room_targets)
         websocket_api.async_register_command(hass, ws_set_maintenance)
+        websocket_api.async_register_command(hass, ws_set_internal_gains)
         websocket_api.async_register_command(hass, ws_set_heating_limit)
         websocket_api.async_register_command(hass, ws_get_settings)
         websocket_api.async_register_command(hass, ws_set_settings)
@@ -229,6 +230,17 @@ async def ws_set_maintenance(hass: HomeAssistant, connection, msg: dict) -> None
     async def run(o):
         await o.async_set_maintenance(msg.get("date"))
         return o.snapshot()
+
+    await _run(hass, connection, msg, run)
+
+
+@_command("set_internal_gains", {vol.Required("entity_id"): str, vol.Required("enabled"): bool})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_internal_gains(hass: HomeAssistant, connection, msg: dict) -> None:
+    async def run(o):
+        o.set_internal_gains(msg["entity_id"], msg["enabled"])
+        return await o.async_diagnostics()
 
     await _run(hass, connection, msg, run)
 
