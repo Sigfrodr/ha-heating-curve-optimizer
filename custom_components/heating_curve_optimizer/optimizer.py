@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     async_call_later,
+    async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
 )
@@ -91,6 +92,7 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 SHIFT_RETRY_SECONDS = 300
+HEATING_RECENT_SECONDS = 3600  # une mesure ne compte que si le chauffage a tourné dans l'heure
 SHIFT_MAX_ATTEMPTS = 6
 
 
@@ -150,6 +152,15 @@ class HeatingCurveOptimizer:
     async def async_start(self) -> None:
         if stored := await self._store.async_load():
             self.data.update(stored)
+        if not self.data.get("heating_filter"):
+            # Les mesures collectées avant ce filtre ont pu l'être chaudière à l'arrêt (temps doux)
+            self.data["samples"] = []
+            self.data["heating_filter"] = True
+            self._save()
+        if sources := self._heating_activity_entities():
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, sources, self._on_heating_activity)
+            )
         self._unsubs.append(
             async_track_time_interval(
                 self.hass, self._async_sample, timedelta(minutes=int(self.cfg[CONF_SAMPLE_MINUTES]))
@@ -272,6 +283,8 @@ class HeatingCurveOptimizer:
             status = "stabilisation (après ajustement)"
         elif self.pilot.mode == "active" and (self.data.get("control_state") or {}).get("mode") != "confort":
             status = "pilotage hors confort (mesure ignorée)"
+        elif not self._heating_recently_active(now):
+            status = "chauffage inactif (mesure ignorée)"
         elif self._solar_gain():
             status = "gains solaires (mesure ignorée)"
         else:
@@ -283,6 +296,32 @@ class HeatingCurveOptimizer:
             self._save()
             status = "collecte"
         self._set_status(status)
+
+    def _heating_activity_entities(self) -> list[str]:
+        """Pompe du circuit de chauffage (prioritaire : le brûleur chauffe aussi l'eau chaude), sinon brûleur."""
+        pump = self._device_entity("binary_sensor", "circulation_pump")
+        if pump:
+            return [pump]
+        burner = self._device_entity("binary_sensor", "burner")
+        return [burner] if burner else []
+
+    @callback
+    def _on_heating_activity(self, event) -> None:
+        new = event.data.get("new_state")
+        if new is not None and new.state == "on":
+            self.data["heating_active_at"] = time.time()
+
+    def _heating_recently_active(self, now: float) -> bool:
+        """Le chauffage a-t-il fonctionné dans l'heure ? (sans capteur d'activité : on suppose que oui)"""
+        sources = self._heating_activity_entities()
+        if not sources:
+            return True
+        for entity_id in sources:
+            st = self.hass.states.get(entity_id)
+            if st is not None and st.state == "on":
+                self.data["heating_active_at"] = now
+                return True
+        return now - float(self.data.get("heating_active_at") or 0) <= HEATING_RECENT_SECONDS
 
     def _multi_room_error(self, room: float | None, target: float | None) -> tuple[float, str] | None:
         """Écart de la pièce limitante (mode multi-pièces), None si non configuré."""

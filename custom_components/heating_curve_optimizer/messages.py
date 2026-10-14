@@ -24,6 +24,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "pilotage hors confort (mesure ignorée)": "pilot outside comfort (sample skipped)",
         "gains solaires (mesure ignorée)": "solar gains (sample skipped)",
         "collecte": "collecting",
+        "chauffage inactif (mesure ignorée)": "heating not running (sample skipped)",
         "en attente de données ({n}/{m})": "waiting for data ({n}/{m})",
         "pente/décalage indisponibles": "slope/shift unavailable",
         "évalué, rien à changer": "evaluated, nothing to change",
