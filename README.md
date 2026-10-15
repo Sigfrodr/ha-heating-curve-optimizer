@@ -56,6 +56,10 @@ environ 1 440 pour ses relevés (toutes les minutes). Le pilote, la courbe et l'
 au confort, pas de nouvelle veille dans les 30 min qui suivent la précédente, et une alerte prévient quand le budget
 est atteint. Dépasser le quota bloque l'accès ViCare pendant 24 h.
 
+**Libérer le quota** : avec l'option « Rafraîchir ViCare toutes les … min » (5 conseillé), l'interrogation automatique
+de ViCare est coupée et l'optimiseur la rafraîchit lui-même (~290 appels par jour au lieu de ~1 440, et une relecture
+70 s après chaque écriture). Le budget d'écritures peut alors monter à 30-40. Remettre l'option à 0 rend la main à ViCare.
+
 En **simulation**, le pilote calcule et affiche ses décisions sans rien écrire. En **actif**, les consignes
 d'origine (chaudière et pièces) sont mémorisées et remises au retour en simulation / désactivé.
 Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus pour la chaudière.

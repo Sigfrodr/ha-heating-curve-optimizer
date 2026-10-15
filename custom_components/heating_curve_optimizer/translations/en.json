@@ -41,12 +41,13 @@
           },
           "pilot": {
             "name": "Setpoint pilot",
-            "description": "Enabled from the panel (Schedule tab) or the \"Setpoint pilot\" entity. During comfort periods the setpoint drops to standby when no room calls for heat.",
+            "description": "Enabled from the panel (Schedule tab) or the \"Setpoint pilot\" entity. During comfort periods the setpoint drops to standby when no room calls for heat. ViCare quota: 1,450 calls per day, ~1,440 of them used by ViCare's own polling (every minute). With the optimizer refreshing every 5 min (~290 calls), the write budget can go up to 30-40.",
             "data": {
               "standby_temp": "Standby setpoint",
               "demand_delay_minutes": "Delay without demand before standby",
               "sun_anticipation": "Lower by 1 °C when strong sun is forecast",
-              "write_budget": "ViCare writes allowed per day (pilot, curve, hot water)"
+              "write_budget": "ViCare writes allowed per day (pilot, curve, hot water)",
+              "vicare_refresh_minutes": "Refresh ViCare every … min (0 = ViCare polls by itself every minute)"
             }
           },
           "costs_report": {

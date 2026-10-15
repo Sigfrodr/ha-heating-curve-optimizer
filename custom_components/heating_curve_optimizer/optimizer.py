@@ -8,7 +8,7 @@ from collections.abc import Callable
 from datetime import timedelta
 
 from homeassistant.components import persistent_notification
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
@@ -198,6 +198,7 @@ class HeatingCurveOptimizer:
         )
         await self.pilot.async_start()
         self._unsubs.append(async_call_later(self.hass, 300, self.async_update_calibration))
+        self._setup_vicare_refresh()
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
@@ -1051,6 +1052,72 @@ class HeatingCurveOptimizer:
         now = time.time()
         self.data["writes"] = [t for t in self.data.get("writes", []) if t >= now - 86400] + [now]
         self._save()
+        if self.vicare_refresh_minutes:
+            # relire la chaudière une fois le cache PyViCare (60 s) expiré, sans attendre le prochain cycle
+            self._unsubs.append(async_call_later(self.hass, 70, self._async_refresh_vicare))
+
+    # ------------------------------------------- rafraîchissement ViCare par l'optimiseur
+
+    @property
+    def vicare_refresh_minutes(self) -> int:
+        return int(self.cfg.get("vicare_refresh_minutes") or 0)
+
+    def _vicare_entry(self) -> ConfigEntry | None:
+        climate = er.async_get(self.hass).async_get(self.cfg[CONF_CLIMATE])
+        if climate is None or climate.config_entry_id is None:
+            return None
+        return self.hass.config_entries.async_get_entry(climate.config_entry_id)
+
+    def _setup_vicare_refresh(self) -> None:
+        """Quota ViCare : l'intégration interroge le cloud chaque minute (~1 440 des 1 450 appels/jour).
+
+        Avec un intervalle > 0, l'interrogation automatique de ViCare est coupée et l'optimiseur la
+        rafraîchit lui-même : ~290 appels/jour à 5 min, le reste du quota sert aux écritures.
+        """
+        vicare = self._vicare_entry()
+        if vicare is None:
+            return
+        minutes = self.vicare_refresh_minutes
+        if minutes:
+            if not vicare.pref_disable_polling:
+                self.hass.config_entries.async_update_entry(vicare, pref_disable_polling=True)
+                self.hass.config_entries.async_schedule_reload(vicare.entry_id)
+                self.data["vicare_polling_disabled"] = True
+                self._save()
+            self._unsubs.append(
+                async_track_time_interval(self.hass, self._async_refresh_vicare, timedelta(minutes=minutes))
+            )
+            self._unsubs.append(async_call_later(self.hass, 60, self._async_refresh_vicare))
+        elif self.data.pop("vicare_polling_disabled", None):
+            # option remise à 0 : rendre à ViCare son interrogation automatique
+            if vicare.pref_disable_polling:
+                self.hass.config_entries.async_update_entry(vicare, pref_disable_polling=False)
+                self.hass.config_entries.async_schedule_reload(vicare.entry_id)
+            self._save()
+
+    async def _async_refresh_vicare(self, _now=None) -> None:
+        vicare = self._vicare_entry()
+        if vicare is None or vicare.state is not ConfigEntryState.LOADED:
+            return
+        ids = [
+            e.entity_id
+            for e in er.async_entries_for_config_entry(er.async_get(self.hass), vicare.entry_id)
+            if not e.disabled_by and self.hass.states.get(e.entity_id) is not None
+        ]
+        if self.cfg[CONF_CLIMATE] in ids:
+            ids.remove(self.cfg[CONF_CLIMATE])
+            ids.insert(0, self.cfg[CONF_CLIMATE])
+        # la première entité remplit le cache PyViCare (un seul appel API), les autres le relisent
+        for batch in (ids[:1], ids[1:]):
+            if not batch:
+                continue
+            try:
+                await self.hass.services.async_call(
+                    "homeassistant", "update_entity", {"entity_id": batch}, blocking=True
+                )
+            except Exception as err:  # noqa: BLE001 — un rafraîchissement raté ne doit rien bloquer
+                _LOGGER.debug("Rafraîchissement ViCare impossible : %s", err)
+                return
 
     async def _async_notify(
         self, title: str, message: str, suffix: str = "", actions: list[dict] | None = None

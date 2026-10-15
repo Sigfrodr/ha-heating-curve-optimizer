@@ -55,6 +55,10 @@ ViCare can neither edit the boiler's schedule nor force a program, so the pilot 
 standby within 30 min of the previous one, and an alert fires when the budget is reached. Exceeding the quota blocks
 ViCare access for 24 h.
 
+**Freeing the quota**: with the "Refresh ViCare every … min" option (5 recommended), ViCare's automatic polling is
+turned off and the optimizer refreshes it itself (~290 calls per day instead of ~1,440, plus a re-read 70 s after each
+write). The write budget can then go up to 30-40. Setting the option back to 0 hands polling back to ViCare.
+
 In **dry run** the pilot computes and shows its decisions without writing anything. When **active**, the
 original setpoints (boiler and rooms) are saved and restored when switching back to dry run / off.
 Safeguards: at least 5 min between writes, at most 48 boiler writes per day.

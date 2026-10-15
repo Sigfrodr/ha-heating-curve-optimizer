@@ -91,6 +91,7 @@ DEFAULT_OPTIONS = {
     CONF_OVERCONSUMPTION_RATIO: 1.3,
     CONF_DAILY_CHECK_TIME: "06:30:00",
     "write_budget": 8.0,
+    "vicare_refresh_minutes": 0.0,
     "gas_meter": "",
     "billing_start": "",
     "monthly_payment": 0.0,

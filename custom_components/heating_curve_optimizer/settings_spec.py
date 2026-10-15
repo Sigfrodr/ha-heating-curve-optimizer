@@ -26,6 +26,7 @@ FIELDS: list[dict] = [
     _n("demand_delay_minutes", "pilot", 5, 120, 5, "min"),
     {"key": "sun_anticipation", "section": "pilot", "kind": "bool"},
     _n("write_budget", "pilot", 2, 40, 1),
+    _n("vicare_refresh_minutes", "pilot", 0, 30, 1, "min"),
     # coûts et rapport
     _n("gas_price", "costs_report", 0.01, 1, 0.001, "€/kWh"),
     _n("kwh_per_m3", "costs_report", 8, 13, 0.01, "kWh/m³"),

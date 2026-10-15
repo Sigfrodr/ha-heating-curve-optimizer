@@ -41,12 +41,13 @@
           },
           "pilot": {
             "name": "Pilotage de la consigne",
-            "description": "Activé depuis le panneau (onglet Planning) ou l'entité « Pilotage de la consigne ». En période confort, la consigne passe en veille quand aucune pièce ne demande de chaleur.",
+            "description": "Activé depuis le panneau (onglet Planning) ou l'entité « Pilotage de la consigne ». En période confort, la consigne passe en veille quand aucune pièce ne demande de chaleur. Quota ViCare : 1 450 appels par jour, dont ~1 440 pour les relevés de ViCare (chaque minute). Avec un rafraîchissement par l'optimiseur toutes les 5 min (~290 appels), le budget d'écritures peut monter à 30-40.",
             "data": {
               "standby_temp": "Consigne de veille",
               "demand_delay_minutes": "Délai sans demande avant la veille",
               "sun_anticipation": "Baisser d'1 °C quand un soleil franc est prévu",
-              "write_budget": "Écritures ViCare autorisées par jour (pilote, courbe, eau chaude)"
+              "write_budget": "Écritures ViCare autorisées par jour (pilote, courbe, eau chaude)",
+              "vicare_refresh_minutes": "Rafraîchir ViCare toutes les … min (0 = ViCare interroge lui-même chaque minute)"
             }
           },
           "costs_report": {
