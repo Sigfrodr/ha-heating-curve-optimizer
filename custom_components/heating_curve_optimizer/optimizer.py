@@ -1102,7 +1102,9 @@ class HeatingCurveOptimizer:
         ids = [
             e.entity_id
             for e in er.async_entries_for_config_entry(er.async_get(self.hass), vicare.entry_id)
-            if not e.disabled_by and self.hass.states.get(e.entity_id) is not None
+            if not e.disabled_by
+            and (st := self.hass.states.get(e.entity_id)) is not None
+            and not st.attributes.get("restored")  # entité orpheline (plus fournie par ViCare)
         ]
         if self.cfg[CONF_CLIMATE] in ids:
             ids.remove(self.cfg[CONF_CLIMATE])

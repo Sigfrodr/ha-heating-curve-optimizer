@@ -21,6 +21,7 @@ async def test_optimizer_takes_over_vicare_polling(hass: HomeAssistant, vicare):
     hass.services.async_register("homeassistant", "update_entity", lambda call: calls.append(call.data["entity_id"]))
     vicare_entry = hass.config_entries.async_entries("vicare")[0]
     vicare_entry.mock_state(hass, ConfigEntryState.LOADED)
+    hass.states.async_set("sensor.vicare_burner_hours", "unavailable", {"restored": True})
     entry = await _pilot_entry(hass, rooms_demand=True)
     assert not vicare_entry.pref_disable_polling  # option à 0 : on ne touche pas à ViCare
 
@@ -34,6 +35,7 @@ async def test_optimizer_takes_over_vicare_polling(hass: HomeAssistant, vicare):
         await optimizer._async_refresh_vicare()
         assert calls[0] == ["climate.vicare_heating"]  # une entité d'abord : un seul appel API
         assert "sensor.vicare_supply_pressure" not in calls[0] and len(calls) == 2
+        assert "sensor.vicare_burner_hours" not in calls[1]  # orpheline ignorée
 
         # retour à 0 : ViCare reprend son interrogation automatique
         hass.config_entries.async_update_entry(entry, options={**entry.options, "vicare_refresh_minutes": 0})
