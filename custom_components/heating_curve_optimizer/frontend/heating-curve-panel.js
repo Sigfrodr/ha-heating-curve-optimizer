@@ -1213,7 +1213,7 @@ class HeatingCurvePanel extends HTMLElement {
     const now = Date.now();
     const iso = (ms) => new Date(ms).toISOString();
     const daily = [this._data.gas_source?.entity || e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours].filter(Boolean);
-    const hourly = [e.supply, e.modulation].filter(Boolean);
+    const hourly = [e.supply, e.modulation, e.gas_dhw_day].filter(Boolean);
     const startDay = new Date(now - 60 * DAY);
     startDay.setHours(0, 0, 0, 0);
     Promise.all([
@@ -1223,7 +1223,7 @@ class HeatingCurvePanel extends HTMLElement {
       }),
       this._hass.callWS({
         type: "recorder/statistics_during_period", start_time: iso(now - 7 * DAY), end_time: iso(now),
-        statistic_ids: hourly, period: "hour", types: ["mean"],
+        statistic_ids: hourly, period: "hour", types: ["mean", "change"],
       }),
     ])
       .then(([day, hour]) => {
@@ -1406,7 +1406,9 @@ class HeatingCurvePanel extends HTMLElement {
     else if (this._stats) {
       const sup = this._stats.hour?.[e.supply] || [];
       const mod = new Map((this._stats.hour?.[e.modulation] || []).map((r) => [r.start, r.mean]));
-      const running = sup.filter((r) => (mod.get(r.start) ?? 0) > 0 && r.mean != null);
+      // heures d'eau chaude écartées : le ballon se charge à 55-75 °C de départ, quelle que soit la courbe
+      const dhw = new Map((this._stats.hour?.[e.gas_dhw_day] || []).map((r) => [r.start, r.change]));
+      const running = sup.filter((r) => (mod.get(r.start) ?? 0) > 0 && r.mean != null && !((dhw.get(r.start) ?? 0) > 0));
       cond = running.length ? (running.filter((r) => r.mean < CONDENSING_MAX).length / running.length) * 100 : null;
       const hours = new Map(this._dailySeries(e.burner_hours, "change").map((r) => [r.t, r.v]));
       const days = this._dailySeries(e.burner_starts, "change").slice(-30)

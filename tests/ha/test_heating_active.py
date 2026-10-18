@@ -1,4 +1,4 @@
-"""Une mesure ne compte que si le chauffage a réellement fonctionné (pompe du circuit)."""
+"""Une mesure ne compte que si le chauffage a réellement fonctionné (pas l'eau chaude seule)."""
 
 import time
 
@@ -8,20 +8,23 @@ from homeassistant.helpers import entity_registry as er
 from .test_integration import _pilot_entry
 
 PUMP = "binary_sensor.vicare_circulation_pump_active"
+TANK = "sensor.vicare_dhw_storage_temperature"
+GAS = "sensor.vicare_heating_gas_consumption_current_day"
 
 
-def _register_pump(hass: HomeAssistant, state: str) -> None:
+def _register(hass: HomeAssistant, entity_id: str, key: str, state: str) -> None:
     registry = er.async_get(hass)
     device_id = registry.async_get("climate.vicare_heating").device_id
+    domain, object_id = entity_id.split(".")
     registry.async_get_or_create(
-        "binary_sensor", "vicare", "circulation_pump", suggested_object_id="vicare_circulation_pump_active",
-        device_id=device_id, translation_key="circulation_pump",
+        domain, "vicare", key, suggested_object_id=object_id, device_id=device_id, translation_key=key,
     )
-    hass.states.async_set(PUMP, state)
+    hass.states.async_set(entity_id, state)
 
 
-async def test_samples_only_while_heating(hass: HomeAssistant, vicare):
-    _register_pump(hass, "off")
+async def test_pump_without_gas_counter(hass: HomeAssistant, vicare):
+    _register(hass, PUMP, "circulation_pump", "off")
+    _register(hass, TANK, "dhw_storage_temperature", "45")
     entry = await _pilot_entry(hass, rooms_demand=True)
     optimizer = entry.runtime_data
     optimizer.data["samples"] = []
@@ -30,11 +33,25 @@ async def test_samples_only_while_heating(hass: HomeAssistant, vicare):
     optimizer.data["heating_active_at"] = time.time() - 4 * 3600
     await optimizer._async_sample()
     assert optimizer.status == "chauffage inactif (mesure ignorée)"
-    assert optimizer.data["samples"] == []
 
-    # la pompe du circuit démarre : la mesure compte
+    # la pompe démarre pour le ballon : il monte, ce n'est pas le chauffage
     hass.states.async_set(PUMP, "on")
     await hass.async_block_till_done()
+    optimizer.data["pump_on_at"] = time.time() - 700
+    hass.states.async_set(TANK, "52")
+    await optimizer._async_sample()
+    assert optimizer.data["samples"] == []
+    hass.states.async_set(PUMP, "off")
+    await hass.async_block_till_done()
+    await optimizer._async_sample()
+    assert optimizer.data["samples"] == []
+
+    # la pompe tourne 10 min sans que le ballon monte : chauffage
+    hass.states.async_set(PUMP, "on")
+    await hass.async_block_till_done()
+    await optimizer._async_sample()
+    assert optimizer.data["samples"] == []  # trop tôt pour trancher
+    optimizer.data["pump_on_at"] = time.time() - 700
     await optimizer._async_sample()
     assert optimizer.status == "collecte" and len(optimizer.data["samples"]) == 1
 
@@ -46,8 +63,36 @@ async def test_samples_only_while_heating(hass: HomeAssistant, vicare):
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_heating_gas_counter_is_the_reference(hass: HomeAssistant, vicare):
+    _register(hass, PUMP, "circulation_pump", "off")
+    _register(hass, GAS, "gas_summary_consumption_heating_currentday", "0.3")
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    optimizer = entry.runtime_data
+    optimizer.data["samples"] = []
+    optimizer.data["heating_active_at"] = 0
+
+    # pompe allumée (eau chaude) mais le gaz chauffage n'avance pas : ignorée
+    hass.states.async_set(PUMP, "on")
+    await hass.async_block_till_done()
+    await optimizer._async_sample()
+    assert optimizer.data["samples"] == []
+
+    # remise à zéro de minuit : pas une activité
+    hass.states.async_set(GAS, "0")
+    await hass.async_block_till_done()
+    await optimizer._async_sample()
+    assert optimizer.data["samples"] == []
+
+    # le compteur de gaz chauffage avance : le chauffage tourne
+    hass.states.async_set(GAS, "0.1")
+    await hass.async_block_till_done()
+    await optimizer._async_sample()
+    assert optimizer.status == "collecte" and len(optimizer.data["samples"]) == 1
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_old_samples_purged_once_on_upgrade(hass: HomeAssistant, vicare):
     entry = await _pilot_entry(hass, rooms_demand=True)
     optimizer = entry.runtime_data
-    assert optimizer.data["heating_filter"] is True
+    assert optimizer.data["heating_filter"] == 2
     await hass.config_entries.async_unload(entry.entry_id)

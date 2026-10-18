@@ -12,7 +12,8 @@ tracks costs, and monitors the boiler.
 ## How it works
 
 1. Every 10 min the integration records outdoor temperature, room temperature and setpoint, **only**
-   in steady state: monitored program active for ≥ 2 h, heating on, outdoor temperature below the heating
+   in steady state: monitored program active for ≥ 2 h, heating actually ran within the last hour (ViCare *heating* gas
+   counter: the pump and burner also run for hot water), outdoor temperature below the heating
    limit, and no strong sunshine (solar filter: sun elevation + cloud coverage from your weather entity).
    If ViCare does not report the current setpoint, it is read from the active program's `number` entity
    (`comfortEnergySaving` → comfort temperature, etc.).

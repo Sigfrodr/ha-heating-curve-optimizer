@@ -12,7 +12,8 @@ Pilote aussi la consigne selon un planning et la demande des pièces, suit les c
 ## Principe
 
 1. Toutes les 10 min, l'intégration enregistre T° extérieure, T° ambiante et consigne, **uniquement**
-   en régime stable : programme surveillé actif depuis ≥ 2 h, chauffage actif, T° ext. sous le seuil de chauffe,
+   en régime stable : programme surveillé actif depuis ≥ 2 h, chauffage ayant réellement tourné dans l'heure (compteur
+   ViCare de gaz *chauffage* : la pompe et le brûleur tournent aussi pour l'eau chaude), T° ext. sous le seuil de chauffe,
    et pas de grand soleil (filtre solaire : hauteur du soleil + couverture nuageuse de la météo).
    Si ViCare ne renvoie pas la consigne courante, elle est lue sur l'entité `number` du programme
    actif (`comfortEnergySaving` → température de confort, etc.).

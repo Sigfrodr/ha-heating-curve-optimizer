@@ -92,6 +92,8 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 SHIFT_RETRY_SECONDS = 300
+HEATING_FILTER_VERSION = 2
+DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
 HEATING_RECENT_SECONDS = 3600  # une mesure ne compte que si le chauffage a tourné dans l'heure
 SHIFT_MAX_ATTEMPTS = 6
 
@@ -152,10 +154,12 @@ class HeatingCurveOptimizer:
     async def async_start(self) -> None:
         if stored := await self._store.async_load():
             self.data.update(stored)
-        if not self.data.get("heating_filter"):
-            # Les mesures collectées avant ce filtre ont pu l'être chaudière à l'arrêt (temps doux)
+        if self.data.get("heating_filter") != HEATING_FILTER_VERSION:
+            # Mesures collectées avec un filtre plus ancien : chaudière à l'arrêt (temps doux), ou
+            # pompe allumée pour l'eau chaude seule (la pompe interne sert aussi au ballon)
             self.data["samples"] = []
-            self.data["heating_filter"] = True
+            self.data.pop("heating_active_at", None)
+            self.data["heating_filter"] = HEATING_FILTER_VERSION
             self._save()
         if sources := self._heating_activity_entities():
             self._unsubs.append(
@@ -298,30 +302,71 @@ class HeatingCurveOptimizer:
             status = "collecte"
         self._set_status(status)
 
+    def _heating_gas_entity(self) -> str | None:
+        return self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
+
     def _heating_activity_entities(self) -> list[str]:
-        """Pompe du circuit de chauffage (prioritaire : le brûleur chauffe aussi l'eau chaude), sinon brûleur."""
-        pump = self._device_entity("binary_sensor", "circulation_pump")
-        if pump:
-            return [pump]
-        burner = self._device_entity("binary_sensor", "burner")
-        return [burner] if burner else []
+        """Source d'activité du chauffage.
+
+        1. Compteur ViCare de gaz *chauffage* du jour : il n'avance que pour le chauffage, jamais pour
+           l'eau chaude (la pompe et le brûleur, eux, tournent aussi pour le ballon).
+        2. À défaut, pompe (ou brûleur), en écartant les marches où le ballon d'eau chaude monte.
+        """
+        if gas := self._heating_gas_entity():
+            return [gas]
+        pump = self._device_entity("binary_sensor", "circulation_pump") or self._device_entity(
+            "binary_sensor", "burner"
+        )
+        return [pump] if pump else []
+
+    def _dhw_charging(self) -> bool:
+        """Charge du ballon en cours : appoint ponctuel, ou ballon qui monte depuis le démarrage de la pompe."""
+        charge = self._device_entity("binary_sensor", "one_time_charge")
+        if charge and (st := self.hass.states.get(charge)) is not None and st.state == "on":
+            return True
+        start = self.data.get("pump_on_tank")
+        tank = self._entity_float(self._device_entity("sensor", "dhw_storage_temperature"))
+        return start is not None and tank is not None and tank - float(start) >= DHW_RISE_K
 
     @callback
     def _on_heating_activity(self, event) -> None:
-        new = event.data.get("new_state")
-        if new is not None and new.state == "on":
-            self.data["heating_active_at"] = time.time()
+        new, old = event.data.get("new_state"), event.data.get("old_state")
+        if new is None:
+            return
+        if new.entity_id == self._heating_gas_entity():
+            try:
+                rising = old is not None and float(new.state) > float(old.state)  # remise à 0 à minuit : ignorée
+            except ValueError:
+                rising = False
+            if rising:
+                self.data["heating_active_at"] = time.time()
+            return
+        if new.state == "on" and (old is None or old.state != "on"):
+            self.data["pump_on_tank"] = self._entity_float(
+                self._device_entity("sensor", "dhw_storage_temperature")
+            )
+            self.data["pump_on_at"] = time.time()
+        elif new.state != "on" and old is not None and old.state == "on":
+            if not self._dhw_charging():
+                self.data["heating_active_at"] = time.time()
+            self.data.pop("pump_on_tank", None)
 
     def _heating_recently_active(self, now: float) -> bool:
         """Le chauffage a-t-il fonctionné dans l'heure ? (sans capteur d'activité : on suppose que oui)"""
         sources = self._heating_activity_entities()
         if not sources:
             return True
-        for entity_id in sources:
-            st = self.hass.states.get(entity_id)
+        if sources[0] != self._heating_gas_entity():
+            st = self.hass.states.get(sources[0])
             if st is not None and st.state == "on":
-                self.data["heating_active_at"] = now
-                return True
+                if "pump_on_tank" not in self.data:  # pompe déjà en marche au démarrage de HA
+                    self.data["pump_on_tank"] = self._entity_float(
+                        self._device_entity("sensor", "dhw_storage_temperature"))
+                    self.data["pump_on_at"] = now
+                # 10 min de marche sans que le ballon monte : c'est bien le chauffage
+                if now - float(self.data.get("pump_on_at") or now) >= 600 and not self._dhw_charging():
+                    self.data["heating_active_at"] = now
+                    return True
         return now - float(self.data.get("heating_active_at") or 0) <= HEATING_RECENT_SECONDS
 
     def _multi_room_error(self, room: float | None, target: float | None) -> tuple[float, str] | None:
