@@ -1889,6 +1889,8 @@ class HeatingCurvePanel extends HTMLElement {
     const p = this._data.pilot;
     const rooms = Object.keys(p.room_targets || {});
     if (!rooms.length) return "";
+    // pièces pilotées par Scheduler (carte ci-dessus) : cette carte ferait doublon tant qu'aucune pièce ne la suit
+    if (this._rsched?.items?.length && !Object.values(p.room_targets).some((x) => x.enabled)) return "";
     if (!this._roomDraft) this._roomDraft = JSON.parse(JSON.stringify(p.room_targets));
     const name = (id) => this._state(id)?.attributes.friendly_name || id;
     const planned = p.state?.rooms || {};
