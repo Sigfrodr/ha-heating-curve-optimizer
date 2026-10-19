@@ -95,7 +95,8 @@ STORAGE_VERSION = 1
 SHIFT_RETRY_SECONDS = 300
 HEATING_FILTER_VERSION = 2
 DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
-HEATING_RECENT_SECONDS = 3600  # une mesure ne compte que si le chauffage a tourné dans l'heure
+HEATING_RECENT_SECONDS = 3600
+HEATING_GAS_WINDOW = 3 * 3600  # ViCare ne met à jour ses compteurs de gaz que toutes les ~2 h  # une mesure ne compte que si le chauffage a tourné dans l'heure
 SHIFT_MAX_ATTEMPTS = 6
 
 
@@ -144,8 +145,6 @@ class HeatingCurveOptimizer:
         self._unavailable_since: float | None = None
         self.pilot = HeatingPilot(self)
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
-        self._regime = None
-        self._regime_since = time.time()
         self._pending = None
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
@@ -272,10 +271,12 @@ class HeatingCurveOptimizer:
         outside = _float(outside_state.state) if outside_state else None
 
         now = time.time()
-        regime = (state.state, program, target)
-        if regime != self._regime:
-            self._regime = regime
-            self._regime_since = now
+        # Régime mémorisé : un redémarrage de HA ou un rechargement ne relance pas la stabilisation
+        regime = [state.state, program, target]
+        if regime != self.data.get("regime"):
+            self.data["regime"], self.data["regime_since"] = regime, now
+            self._save()
+        regime_since = float(self.data.get("regime_since") or now)
         settle = float(self.cfg[CONF_SETTLE_MINUTES]) * 60
         programs = {p.lower() for p in self.cfg[CONF_PROGRAMS]}
         multi = self._multi_room_error(room, target)
@@ -288,7 +289,7 @@ class HeatingCurveOptimizer:
             status = "mesure manquante"
         elif outside >= float(self.cfg[CONF_HEATING_LIMIT]):
             status = f"T° ext. ≥ {float(self.cfg[CONF_HEATING_LIMIT]):g} °C"
-        elif now - self._regime_since < settle:
+        elif now - regime_since < settle:
             status = "stabilisation (programme/consigne)"
         elif now - self.data["last_change"] < settle:
             status = "stabilisation (après ajustement)"
@@ -311,19 +312,19 @@ class HeatingCurveOptimizer:
     def _heating_gas_entity(self) -> str | None:
         return self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
 
-    def _heating_activity_entities(self) -> list[str]:
-        """Source d'activité du chauffage.
-
-        1. Compteur ViCare de gaz *chauffage* du jour : il n'avance que pour le chauffage, jamais pour
-           l'eau chaude (la pompe et le brûleur, eux, tournent aussi pour le ballon).
-        2. À défaut, pompe (ou brûleur), en écartant les marches où le ballon d'eau chaude monte.
-        """
-        if gas := self._heating_gas_entity():
-            return [gas]
-        pump = self._device_entity("binary_sensor", "circulation_pump") or self._device_entity(
+    def _pump_entity(self) -> str | None:
+        return self._device_entity("binary_sensor", "circulation_pump") or self._device_entity(
             "binary_sensor", "burner"
         )
-        return [pump] if pump else []
+
+    def _heating_activity_entities(self) -> list[str]:
+        """Sources d'activité du chauffage.
+
+        - Pompe (ou brûleur) : dit *quand* la chaudière tourne, mais tourne aussi pour l'eau chaude.
+        - Compteur ViCare de gaz *chauffage* du jour : n'avance que pour le chauffage, mais n'est mis à
+          jour que toutes les ~2 h. Il confirme qu'une marche de la pompe était bien du chauffage.
+        """
+        return [e for e in (self._pump_entity(), self._heating_gas_entity()) if e]
 
     def _dhw_charging(self) -> bool:
         """Charge du ballon en cours : appoint ponctuel, ou ballon qui monte depuis le démarrage de la pompe."""
@@ -345,7 +346,7 @@ class HeatingCurveOptimizer:
             except ValueError:
                 rising = False
             if rising:
-                self.data["heating_active_at"] = time.time()
+                self.data["heating_gas_at"] = time.time()
             return
         if new.state == "on" and (old is None or old.state != "on"):
             self.data["pump_on_tank"] = self._entity_float(
@@ -353,26 +354,34 @@ class HeatingCurveOptimizer:
             )
             self.data["pump_on_at"] = time.time()
         elif new.state != "on" and old is not None and old.state == "on":
-            if not self._dhw_charging():
-                self.data["heating_active_at"] = time.time()
+            self.data["pump_last_on"] = time.time()
+            self.data["last_run_dhw"] = self._dhw_charging()
             self.data.pop("pump_on_tank", None)
 
     def _heating_recently_active(self, now: float) -> bool:
-        """Le chauffage a-t-il fonctionné dans l'heure ? (sans capteur d'activité : on suppose que oui)"""
-        sources = self._heating_activity_entities()
-        if not sources:
-            return True
-        if sources[0] != self._heating_gas_entity():
-            st = self.hass.states.get(sources[0])
-            if st is not None and st.state == "on":
-                if "pump_on_tank" not in self.data:  # pompe déjà en marche au démarrage de HA
-                    self.data["pump_on_tank"] = self._entity_float(
-                        self._device_entity("sensor", "dhw_storage_temperature"))
-                    self.data["pump_on_at"] = now
-                # 10 min de marche sans que le ballon monte : c'est bien le chauffage
-                if now - float(self.data.get("pump_on_at") or now) >= 600 and not self._dhw_charging():
-                    self.data["heating_active_at"] = now
-                    return True
+        """Le chauffage a-t-il tourné dans l'heure ? (sans capteur d'activité : on suppose que oui)
+
+        Pompe en marche (ou arrêtée depuis moins d'une heure), et marche qui n'est pas que de l'eau
+        chaude : le compteur de gaz chauffage a avancé récemment, ou le ballon n'a pas monté.
+        """
+        pump, gas = self._pump_entity(), self._heating_gas_entity()
+        gas_recent = bool(gas) and now - float(self.data.get("heating_gas_at") or 0) <= HEATING_GAS_WINDOW
+        if pump is None:
+            return gas_recent if gas else True
+        st = self.hass.states.get(pump)
+        if st is not None and st.state == "on":
+            if "pump_on_tank" not in self.data:  # pompe déjà en marche au démarrage de HA
+                self.data["pump_on_tank"] = self._entity_float(self._device_entity("sensor", "dhw_storage_temperature"))
+                self.data["pump_on_at"] = now
+            # sans confirmation par le gaz, 10 min de marche pour voir si le ballon monte
+            settled = now - float(self.data.get("pump_on_at") or now) >= 600
+            if gas_recent or (settled and not self._dhw_charging()):
+                self.data["heating_active_at"] = now
+                return True
+            return False
+        if now - float(self.data.get("pump_last_on") or 0) <= HEATING_RECENT_SECONDS:
+            if gas_recent or not self.data.get("last_run_dhw"):
+                return True
         return now - float(self.data.get("heating_active_at") or 0) <= HEATING_RECENT_SECONDS
 
     def _multi_room_error(self, room: float | None, target: float | None) -> tuple[float, str] | None:
@@ -871,14 +880,15 @@ class HeatingCurveOptimizer:
     async def async_diagnostics(self) -> dict:
         """Bilan thermique par saison de chauffe et équilibrage des pièces."""
         rows = await self.async_daily_stats(400)
+        elec = await self._async_linky_daily(400)
         kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
-        seasons: dict[str, list[tuple[float, float]]] = {}
+        seasons: dict[str, list[tuple]] = {}
         for start, gas, outside in rows:
             if gas is None or outside is None:
                 continue
             day = dt_util.as_local(dt_util.utc_from_timestamp(start)) if isinstance(start, (int, float)) else start
             year = day.year if day.month >= 9 else day.year - 1
-            seasons.setdefault(f"{year}-{year + 1}", []).append((gas * kwh_per_m3, outside))
+            seasons.setdefault(f"{year}-{year + 1}", []).append((gas * kwh_per_m3, outside, elec.get(day.date())))
         balances = {}
         for season, days in sorted(seasons.items()):
             indoor = float(self.pilot.temps["comfort"])
@@ -1177,6 +1187,27 @@ class HeatingCurveOptimizer:
             "status": state.get("status"),
             "last_day": state.get("last_day"),
             "at": state.get("at"),
+        }
+
+    async def _async_linky_daily(self, days: int) -> dict:
+        """{jour local: kWh d'électricité} depuis la statistique Linky (vide sans compteur)."""
+        sid = self._linky.statistic_id if self._linky else None
+        if not sid:
+            return {}
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        from homeassistant.components.recorder.statistics import statistics_during_period  # noqa: PLC0415
+
+        start = dt_util.start_of_local_day() - timedelta(days=days)
+        try:
+            stats = await get_instance(self.hass).async_add_executor_job(
+                statistics_during_period, self.hass, start, None, {sid}, "day", {"energy": "kWh"}, {"change"}
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Statistique Linky illisible : %s", err)
+            return {}
+        return {
+            dt_util.as_local(dt_util.utc_from_timestamp(_ts(r["start"]))).date(): r["change"]
+            for r in stats.get(sid, []) if r.get("change") is not None
         }
 
     async def _async_linky_update(self, _now=None) -> None:

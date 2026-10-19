@@ -336,6 +336,18 @@ const EN = {
   "Planning de la chaudière (ViCare)": "Boiler schedule (ViCare)",
   "Plannings des pièces (Scheduler)": "Room schedules (Scheduler)",
   "Chauffage électrique d'appoint": "Electric backup heating",
+  "Apports électriques": "Electrical gains",
+  "Avec le compteur Linky, l'électricité consommée dans la maison (≈ 90 % finit en chaleur) est comptée comme apport : les déperditions ne sont plus faussées par les appareils.":
+    "With the Linky meter, electricity used in the house (≈ 90 % ends up as heat) is counted as a gain: heat loss is no longer skewed by appliances.",
+  "Talon de consommation": "Baseload",
+  "talon estimé (jours les plus sobres)": "estimated baseload (most frugal days)",
+  "≈ {k} kWh/an · {e} €/an": "≈ {k} kWh/yr · €{e}/yr",
+  "Ce qui consomme en permanence : réfrigérateur et congélateur, box, NAS, VMC, veilles, électronique de la chaudière… Chaque tranche de 10 W permanents coûte environ {v} € par an.":
+    "What runs all the time: fridge and freezer, router, NAS, ventilation, standby, boiler electronics… Every 10 W running permanently costs about €{v} a year.",
+  "Estimé à partir de la consommation journalière (10 % des jours les plus sobres de chaque mois, divisés par 24 h). La courbe de charge (à activer dans l'espace Enedis) permettrait de le mesurer la nuit.":
+    "Estimated from daily consumption (the 10 % most frugal days of each month, divided by 24 h). The load curve (to enable in the Enedis account) would measure it at night.",
+  "Talon mensuel (W)": "Monthly baseload (W)",
+  "vs {m} : {d}": "vs {m}: {d}",
   "•••• enregistré — colle un nouveau jeton pour le remplacer": "•••• saved — paste a new token to replace it",
   "non renseigné": "not set",
   "Électricité de la maison (Linky)": "Household electricity (Linky)",
@@ -1546,7 +1558,56 @@ class HeatingCurvePanel extends HTMLElement {
         fmtY: (v) => fmt(v, 0),
         tip: (x) => `<b>${dayLabel(x.t)}</b><div>${t("{v} kWh", { v: fmt(x.v, 1) })} · ${t("≈ {v} €", { v: fmt(x.v * price, 2) })}</div>`,
       })}
-      ${info(t("Dans le tableau Énergie de Home Assistant, ajoute la source « Linky – consommation » dans « Consommation du réseau électrique »."))}</div>`;
+      ${info(t("Dans le tableau Énergie de Home Assistant, ajoute la source « Linky – consommation » dans « Consommation du réseau électrique »."))}</div>
+      ${this._baseloadCard(pal)}`;
+  }
+
+  _ensureLinkyHistory() {
+    const sid = this._data.linky?.statistic_id;
+    if (!sid || this._lkHist || this._lkHistLoading) return;
+    this._lkHistLoading = true;
+    this._hass.callWS({ type: "recorder/statistics_during_period", start_time: new Date(Date.now() - 3 * 366 * DAY).toISOString(),
+      statistic_ids: [sid], period: "day", types: ["change"], units: { energy: "kWh" } })
+      .then((r) => { this._lkHist = (r[sid] || []).filter((x) => x.change != null).map((x) => ({ t: x.start, v: Math.max(0, x.change) })); })
+      .catch((err) => { this._lkHist = { error: err?.message || String(err) }; })
+      .finally(() => { this._lkHistLoading = false; this._render(); });
+  }
+
+  _baseloadCard(pal) {
+    this._ensureLinkyHistory();
+    const hist = this._lkHist;
+    if (!Array.isArray(hist) || hist.length < 20) return "";
+    const price = this._data.costs.elec_price;
+    // talon d'un mois : moyenne des 10 % de jours les plus sobres, ramenée en watts
+    const months = new Map();
+    for (const d of hist) {
+      const dt = new Date(d.t);
+      const key = dt.getFullYear() * 100 + dt.getMonth();
+      if (!months.has(key)) months.set(key, { t: new Date(dt.getFullYear(), dt.getMonth(), 1).getTime(), days: [] });
+      months.get(key).days.push(d.v);
+    }
+    const series = [...months.values()].filter((m) => m.days.length >= 15).map((m) => {
+      const sorted = [...m.days].sort((a, b) => a - b);
+      const low = sorted.slice(0, Math.max(2, Math.round(sorted.length * 0.1)));
+      return { t: m.t, v: (low.reduce((a, x) => a + x, 0) / low.length / 24) * 1000 };
+    });
+    if (!series.length) return "";
+    const now = series[series.length - 1];
+    const yearAgo = series.find((m) => Math.abs(m.t - (now.t - 365 * DAY)) < 20 * DAY);
+    const kwhYear = (now.v * 8760) / 1000;
+    const monthName = (ms) => new Date(ms).toLocaleDateString(LOCALE, { month: "short", year: "numeric" });
+    return `<div class="card"><h2>${t("Talon de consommation")}</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v">${fmt(now.v, 0)} W ${yearAgo ? `<small>(${t("vs {m} : {d}", { m: monthName(yearAgo.t), d: `${fmt(now.v - yearAgo.v, 0, true)} W` })})</small>` : ""}</div>
+          <div class="l">${t("talon estimé (jours les plus sobres)")} · ${monthName(now.t)}</div></div>
+        <div class="kpi"><div class="v">${t("≈ {k} kWh/an · {e} €/an", { k: fmt(kwhYear, 0), e: fmt(kwhYear * price, 0) })}</div><div class="l">${t("Talon de consommation")}</div></div>
+      </div>
+      ${this._columnChart("baseload", series, (x) => x.v, pal.s4, {
+        fmtY: (v) => fmt(v, 0),
+        tip: (x) => `<b>${monthName(x.t)}</b><div>${fmt(x.v, 0)} W</div>`,
+      })}
+      ${info(t("Ce qui consomme en permanence : réfrigérateur et congélateur, box, NAS, VMC, veilles, électronique de la chaudière… Chaque tranche de 10 W permanents coûte environ {v} € par an.", { v: fmt(87.6 * price, 0) }),
+        t("Estimé à partir de la consommation journalière (10 % des jours les plus sobres de chaque mois, divisés par 24 h). La courbe de charge (à activer dans l'espace Enedis) permettrait de le mesurer la nuit."))}</div>`;
   }
 
   _electricCard(pal) {
@@ -2098,11 +2159,11 @@ class HeatingCurvePanel extends HTMLElement {
     const name = (id) => this._state(id)?.attributes.friendly_name || id;
     const seasons = Object.entries(g.thermal || {});
     const thermal = seasons.length
-      ? `<div class="table-wrap"><table><thead><tr><th>${t("Saison de chauffe")}</th><th>${t("Déperditions")}</th><th>${t("Talon")}</th><th>${t("Fiabilité (R²)")}</th><th>${t("Jours")}</th><th>${t("Seuil de chauffe")}</th></tr></thead>
+      ? `<div class="table-wrap"><table><thead><tr><th>${t("Saison de chauffe")}</th><th>${t("Déperditions")}</th><th>${t("Talon")}</th><th>${t("Apports électriques")}</th><th>${t("Fiabilité (R²)")}</th><th>${t("Jours")}</th><th>${t("Seuil de chauffe")}</th></tr></thead>
         <tbody>${seasons.map(([season, th]) => th.loss_w_per_k != null
-          ? `<tr><td>${esc(season)}</td><td><b>${fmt(th.loss_w_per_k, 0)} W/K</b></td><td>${t("{v} kWh/j", { v: fmt(th.base_kwh_per_day, 1) })}</td><td>${fmt(th.r2, 2)}</td><td>${th.days}</td>
+          ? `<tr><td>${esc(season)}</td><td><b>${fmt(th.loss_w_per_k, 0)} W/K</b></td><td>${t("{v} kWh/j", { v: fmt(th.base_kwh_per_day, 1) })}</td><td>${th.internal_gains_w != null ? `${fmt(th.internal_gains_w, 0)} W` : "—"}</td><td>${fmt(th.r2, 2)}</td><td>${th.days}</td>
             <td>${th.heating_limit != null ? `${fmt(th.heating_limit, 1)} °C <button class="btn" style="padding:2px 8px" data-action="use-limit" data-value="${th.heating_limit}">${t("Utiliser")}</button>` : "—"}</td></tr>`
-          : `<tr><td>${esc(season)}</td><td colspan="5">${t("pas assez de jours de chauffe ({n})", { n: th.days })}</td></tr>`).join("")}</tbody></table></div>`
+          : `<tr><td>${esc(season)}</td><td colspan="6">${t("pas assez de jours de chauffe ({n})", { n: th.days })}</td></tr>`).join("")}</tbody></table></div>`
       : `<div class="empty">${t("Pas encore de statistiques de gaz.")}</div>`;
     const rooms = g.rooms || [];
     const maxRel = Math.max(1.8, ...rooms.map((r) => r.relative));
@@ -2120,6 +2181,7 @@ class HeatingCurvePanel extends HTMLElement {
         ${info(
           t("Déperditions estimées à partir du gaz consommé et de l'écart intérieur / extérieur, jour par jour (rendement supposé 95 %)."),
           t("Le seuil de chauffe est la température extérieure au-dessus de laquelle les apports gratuits (soleil, occupants, appareils) suffisent."),
+          ...(seasons.some(([, th]) => th.internal_gains_w != null) ? [t("Avec le compteur Linky, l'électricité consommée dans la maison (≈ 90 % finit en chaleur) est comptée comme apport : les déperditions ne sont plus faussées par les appareils.")] : []),
         )}
         ${(this._data.overconsumption_log || []).length ? `<h2 style="margin-top:16px">${t("Jours de surconsommation")}</h2>
           <div class="table-wrap"><table><thead><tr><th>${t("Jour")}</th><th>${t("Consommé")}</th><th>${t("Attendu pour la météo")}</th></tr></thead>

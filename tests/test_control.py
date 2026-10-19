@@ -162,3 +162,16 @@ def test_vicare_schedule_conversion():
     # palier limité à minuit, et période jusqu'à 24:00
     early = vicare_schedule({"0": [["00:30", "24:00"]]}, 60, 2)
     assert early["mon"][0]["start"] == "00:00" and early["mon"][1]["end"] == "24:00"
+
+
+def test_thermal_balance_with_electric_gains():
+    # maison de 200 W/K ; l'électricité augmente quand il fait froid (éclairage, appoint électrique)
+    days = []
+    for t_ext in range(-2, 13):
+        elec = 10 + 0.4 * (12 - t_ext)
+        heat = 200 * (21 - t_ext) * 24 / 1000
+        days.append(((heat - elec * 0.9) / 0.95, float(t_ext), elec))
+    tb = thermal_balance(days, indoor=21)
+    assert abs(tb.loss_w_per_k - 200) < 0.5 and tb.internal_gains_w is not None
+    # sans l'électricité, ses apports variables font croire à une maison moins déperditive
+    assert thermal_balance([(g, t) for g, t, _ in days], indoor=21).loss_w_per_k < 190

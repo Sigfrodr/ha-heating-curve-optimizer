@@ -63,31 +63,54 @@ async def test_pump_without_gas_counter(hass: HomeAssistant, vicare):
     await hass.config_entries.async_unload(entry.entry_id)
 
 
-async def test_heating_gas_counter_is_the_reference(hass: HomeAssistant, vicare):
+async def test_heating_gas_counter_confirms_pump_runs(hass: HomeAssistant, vicare):
     _register(hass, PUMP, "circulation_pump", "off")
+    _register(hass, TANK, "dhw_storage_temperature", "45")
     _register(hass, GAS, "gas_summary_consumption_heating_currentday", "0.3")
     entry = await _pilot_entry(hass, rooms_demand=True)
     optimizer = entry.runtime_data
     optimizer.data["samples"] = []
     optimizer.data["heating_active_at"] = 0
 
-    # pompe allumée (eau chaude) mais le gaz chauffage n'avance pas : ignorée
+    # pompe allumée, ballon qui monte, gaz chauffage immobile : eau chaude seule
     hass.states.async_set(PUMP, "on")
     await hass.async_block_till_done()
+    optimizer.data["pump_on_at"] -= 700
+    hass.states.async_set(TANK, "52")
     await optimizer._async_sample()
     assert optimizer.data["samples"] == []
 
-    # remise à zéro de minuit : pas une activité
+    # remise à zéro de minuit du compteur : pas une activité
     hass.states.async_set(GAS, "0")
     await hass.async_block_till_done()
     await optimizer._async_sample()
     assert optimizer.data["samples"] == []
 
-    # le compteur de gaz chauffage avance : le chauffage tourne
+    # le compteur de gaz chauffage avance (mis à jour toutes les ~2 h) : la marche était du chauffage
     hass.states.async_set(GAS, "0.1")
     await hass.async_block_till_done()
     await optimizer._async_sample()
     assert optimizer.status == "collecte" and len(optimizer.data["samples"]) == 1
+
+    # pompe arrêtée depuis moins d'une heure, gaz confirmé : la mesure compte encore
+    hass.states.async_set(PUMP, "off")
+    await hass.async_block_till_done()
+    await optimizer._async_sample()
+    assert len(optimizer.data["samples"]) == 2
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_settle_survives_reload(hass: HomeAssistant, vicare):
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    await entry.runtime_data._async_sample()
+    since = entry.runtime_data.data["regime_since"]
+    from unittest.mock import patch
+
+    with patch("custom_components.heating_curve_optimizer.async_register_panel"):
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+    await entry.runtime_data._async_sample()
+    assert entry.runtime_data.data["regime_since"] == since  # pas de nouvelle stabilisation de 2 h
     await hass.config_entries.async_unload(entry.entry_id)
 
 

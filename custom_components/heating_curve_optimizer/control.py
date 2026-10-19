@@ -232,16 +232,29 @@ class ThermalBalance:
     base_kwh_per_day: float
     r2: float
     days: int
+    internal_gains_w: float | None = None  # apports de l'électricité consommée dans la maison
+
+
+ELEC_TO_HEAT = 0.9  # part de l'électricité consommée qui finit en chaleur dans la maison
 
 
 def thermal_balance(
-    days: list[tuple[float, float]], indoor: float = 19.0, efficiency: float = 0.95
+    days: list[tuple], indoor: float = 19.0, efficiency: float = 0.95
 ) -> ThermalBalance | None:
     """Régression gaz (kWh/j) = a × (T int − T ext) + b sur les jours de chauffe.
 
-    days : [(kWh de gaz de chauffage du jour, T ext moyenne du jour)].
+    days : [(kWh de gaz de chauffage, T ext moyenne)] ou [(kWh de gaz, T ext, kWh d'électricité)].
+    Avec l'électricité (compteur Linky), la chaleur apportée = gaz × rendement + électricité × 0,9 :
+    les déperditions (W/K) ne sont plus faussées par les apports des appareils. Le talon est rendu
+    en kWh de gaz, avec l'électricité moyenne, pour garder le même modèle (seuil de chauffe, prévision).
     """
-    pts = [(indoor - t, kwh) for kwh, t in days if kwh > 0 and indoor - t > 2]
+    heating = [d for d in days if d[0] > 0 and indoor - d[1] > 2]
+    with_elec = [d for d in heating if len(d) > 2 and d[2] is not None]
+    use_elec = len(with_elec) >= max(10, 0.8 * len(heating))
+    if use_elec:
+        pts = [(indoor - t, kwh * efficiency + elec * ELEC_TO_HEAT) for kwh, t, elec in with_elec]
+    else:
+        pts = [(indoor - d[1], d[0]) for d in heating]
     if len(pts) < 10:
         return None
     n = len(pts)
@@ -255,6 +268,9 @@ def thermal_balance(
     ss_tot = sum((y - my) ** 2 for _, y in pts)
     ss_res = sum((y - (a * x + b)) ** 2 for x, y in pts)
     r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+    if use_elec:
+        gains = sum(e for _, _, e in with_elec) / len(with_elec) * ELEC_TO_HEAT
+        return ThermalBalance(a * 1000 / 24, (b - gains) / efficiency, r2, n, round(gains * 1000 / 24))
     return ThermalBalance(a * efficiency * 1000 / 24, b, r2, n)
 
 
