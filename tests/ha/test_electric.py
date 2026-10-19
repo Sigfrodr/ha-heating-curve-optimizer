@@ -24,6 +24,12 @@ async def test_electric_heater_discovery(hass: HomeAssistant, vicare):
     entry = await _pilot_entry(hass, rooms_demand=True)
     snap = entry.runtime_data.snapshot()
     assert snap["electric"] == [{"climate": "climate.radiateur_sdb", "energy": "sensor.radiateur_sdb_energy",
-                                 "humidity": "sensor.capteur_sdb_humidity"}]
+                                 "measured": False, "humidity": "sensor.capteur_sdb_humidity"}]
     assert snap["costs"]["elec_price"] == 0.25
+    # un compteur mesuré dans la même pièce (intégrale de la puissance de la prise) est préféré
+    meter = ents.async_get_or_create("sensor", "integration", "sdb_kwh", suggested_object_id="energie_sdb_mesuree",
+                                     original_device_class="energy")
+    ents.async_update_entity(meter.entity_id, area_id=area.id)
+    heater = entry.runtime_data.snapshot()["electric"][0]
+    assert heater["energy"] == "sensor.energie_sdb_mesuree" and heater["measured"]
     await hass.config_entries.async_unload(entry.entry_id)

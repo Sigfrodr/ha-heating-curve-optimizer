@@ -1174,11 +1174,15 @@ class HeatingCurveOptimizer:
         for e in ents.entities.values():
             if e.domain != "climate" or e.platform != "versatile_thermostat" or e.disabled_by:
                 continue
-            energy = next((x.entity_id for x in sensors if e.device_id and x.device_id == e.device_id
-                           and kind(x) == "energy"), None)
             room = area(e)
+            # compteur mesuré (prise, module fil pilote…) de la pièce de préférence à l'estimation du thermostat
+            measured = next((x.entity_id for x in sensors if room and kind(x) == "energy" and area(x) == room
+                             and x.platform != "versatile_thermostat" and x.device_id != e.device_id), None)
+            estimated = next((x.entity_id for x in sensors if e.device_id and x.device_id == e.device_id
+                              and kind(x) == "energy"), None)
+            energy = measured or estimated
             humidity = next((x.entity_id for x in sensors if room and kind(x) == "humidity" and area(x) == room), None)
-            out.append({"climate": e.entity_id, "energy": energy, "humidity": humidity})
+            out.append({"climate": e.entity_id, "energy": energy, "measured": bool(measured), "humidity": humidity})
         return out
 
     # ---------------------------------------------------- planning de la chaudière

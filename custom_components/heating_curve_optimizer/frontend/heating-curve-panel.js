@@ -339,6 +339,8 @@ const EN = {
   "Consommation estimée par Versatile Thermostat (puissance × temps de chauffe), au prix de l'électricité des Réglages.":
     "Consumption estimated by Versatile Thermostat (power × heating time), at the electricity price from the Settings.",
   "kWh sur 7 j": "kWh over 7 d",
+  "Consommation mesurée par la prise ou le module du radiateur, au prix de l'électricité des Réglages.":
+    "Consumption measured by the heater's plug or module, at the electricity price from the Settings.",
   "kWh sur 30 j": "kWh over 30 d",
   "humidité actuelle": "current humidity",
   "humidité moyenne (7 j)": "average humidity (7 d)",
@@ -1533,7 +1535,9 @@ class HeatingCurvePanel extends HTMLElement {
         }) : `<p class="note">${t("Pas de consommation électrique sur la période : l'eau de la chaudière suffit.")}</p>`}`;
     }).join("");
     return `<div class="card"><h2>${t("Chauffage électrique d'appoint")}</h2>
-      <p class="sub">${t("Consommation estimée par Versatile Thermostat (puissance × temps de chauffe), au prix de l'électricité des Réglages.")}</p>
+      <p class="sub">${heaters.every((x) => x.measured)
+        ? t("Consommation mesurée par la prise ou le module du radiateur, au prix de l'électricité des Réglages.")
+        : t("Consommation estimée par Versatile Thermostat (puissance × temps de chauffe), au prix de l'électricité des Réglages.")}</p>
       ${blocks}
       ${info(t("Le gaz coûte bien moins cher que l'électricité : l'électrique ne devrait servir qu'en appoint (douches, séchage, chaudière en réduit)."),
         t("Une douche est comptée quand l'humidité dépasse 88 %."))}</div>`;
