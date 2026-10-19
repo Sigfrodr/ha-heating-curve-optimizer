@@ -152,6 +152,22 @@ window.demoHass = {
       case "heating_curve_optimizer/bill_forecast":
         return { forecast: { consumed_kwh: 1420, remaining_kwh: 7310, total_kwh: 8730, total_cost: 1226, payments: 1284,
           balance: -58, period_start: "2026-04-11", period_end: "2027-04-11" } };
+      case "heating_curve_optimizer/vicare_schedule": {
+        const week = Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => [d, [
+          { start: "05:30", end: "07:00", mode: "normal", position: 0 }, { start: "07:00", end: "22:30", mode: "comfort", position: 1 }]]));
+        return { current: week, constraints: { max_entries: 2, resolution: 10, modes: ["normal", "comfort"], writable: true },
+          preheat_minutes: 90, proposals: { 0: week, 30: week, 60: week, 90: week, 120: week } };
+      }
+      case "scheduler": {
+        const slot = (entity, start, stop, temperature) => ({ start: `${start}:00`, stop: `${stop}:00`, conditions: [],
+          actions: [{ service: "climate.set_temperature", entity_id: entity, service_data: { hvac_mode: "heat", temperature } }] });
+        const sched = (id, entity, name, weekdays, slots) => ({ schedule_id: id, entity_id: `switch.schedule_${id}`, name, weekdays, enabled: true,
+          timeslots: slots.map(([a, b, temp]) => slot(entity, a, b, temp)) });
+        return [
+          sched("a1", "climate.chambre_1", "Chambre", ["workday"], [["00:00", "06:30", 17], ["06:30", "08:30", 19], ["08:30", "21:00", 17], ["21:00", "23:00", 19.5], ["23:00", "00:00", 17]]),
+          sched("a2", "climate.salon", "Salon", ["daily"], [["00:00", "06:30", 18], ["06:30", "22:30", 20], ["22:30", "00:00", 18]]),
+        ];
+      }
       case "heating_curve_optimizer/get_settings": return demoSettings();
       case "heating_curve_optimizer/set_settings":
         (window.__calls = window.__calls || []).push(["ws", msg.type, msg.values]);

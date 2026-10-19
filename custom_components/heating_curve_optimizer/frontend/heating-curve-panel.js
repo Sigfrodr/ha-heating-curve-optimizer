@@ -334,6 +334,30 @@ const EN = {
   "Dim": "Sun",
   "Planning hebdomadaire": "Weekly schedule",
   "Planning de la chaudière (ViCare)": "Boiler schedule (ViCare)",
+  "Plannings des pièces (Scheduler)": "Room schedules (Scheduler)",
+  "Consigne de chaque tête thermostatique au fil de la journée, appliquée par l'intégration Scheduler. Une pièce ne peut chauffer que si la chaudière chauffe aussi.":
+    "Setpoint of each radiator valve through the day, applied by the Scheduler integration. A room can only heat while the boiler heats too.",
+  "Aucun planning Scheduler ne pilote les pièces suivies.": "No Scheduler schedule drives the tracked rooms.",
+  "Intégration Scheduler absente : installe-la (HACS) pour gérer les plannings des pièces ici.":
+    "Scheduler integration missing: install it (HACS) to manage room schedules here.",
+  "{room} : {temp} °C de {a} à {b} ({days}) alors que la chaudière est en réduit : avance cette plage ou prolonge le confort de la chaudière.":
+    "{room}: {temp} °C from {a} to {b} ({days}) while the boiler is reduced: move this slot earlier or extend the boiler's comfort.",
+  "Plannings cohérents avec celui de la chaudière.": "Schedules consistent with the boiler's.",
+  "Tous les jours": "Every day",
+  "Semaine": "Weekdays",
+  "Week-end": "Weekend",
+  "Début": "Start",
+  "Ajouter une plage": "Add a slot",
+  "Supprimer la plage": "Remove the slot",
+  "Planning de la pièce enregistré": "Room schedule saved",
+  "Deux plages commencent à la même heure.": "Two slots start at the same time.",
+  "désactivé": "disabled",
+  "Modifier": "Edit",
+  "Fermer": "Close",
+  "Une plage par ligne : la consigne s'applique de son heure de début jusqu'au début de la suivante (la dernière va jusqu'à minuit).":
+    "One slot per line: the setpoint applies from its start time until the next slot starts (the last one runs until midnight).",
+  "Les plannings avec conditions ou plusieurs actions restent modifiables dans Scheduler uniquement.":
+    "Schedules with conditions or several actions can only be edited in Scheduler.",
   "Le planning ci-dessus peut être envoyé à la chaudière : il remplace celui de l'appli ViCare. Hors plages, la chaudière est en réduit.":
     "The schedule above can be sent to the boiler: it replaces the one in the ViCare app. Outside the slots, the boiler runs reduced.",
   "Palier normal avant le confort": "Normal step before comfort",
@@ -636,6 +660,18 @@ tr:last-child td { border-bottom:none; }
   background:var(--secondary-background-color); color:var(--secondary-text-color); white-space:nowrap; }
 .chip.on { background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); color:var(--primary-text-color); }
 button.chip { border:0; font:inherit; font-size:12px; cursor:pointer; }
+.rs-hours { display:flex; justify-content:space-between; font-size:11px; color:var(--secondary-text-color); margin:8px 0 2px; }
+.rs-item { padding:10px 0; border-top:1px solid var(--divider-color); }
+.rs-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.rs-bar { position:relative; height:24px; border-radius:6px; overflow:hidden; background:var(--secondary-background-color); }
+.rs-bar > div { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
+  font-size:11px; color:rgba(0,0,0,.78); border-right:1px solid var(--card-background-color); box-sizing:border-box; }
+.rs-pre { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin-bottom:12px; }
+.rs-pre .seg button { white-space:nowrap; }
+.rs-edit { margin-top:8px; }
+.rs-edit table { width:auto; }
+.rs-edit input[type="time"] { font:inherit; padding:4px 6px; border-radius:6px; border:1px solid var(--divider-color);
+  background:var(--card-background-color); color:var(--primary-text-color); }
 .chip.lim { background:color-mix(in srgb, var(--primary-color) 18%, transparent); color:var(--primary-text-color); }
 .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:12px; }
 .kpi .v { font-size:22px; font-weight:500; font-variant-numeric:tabular-nums; }
@@ -902,6 +938,48 @@ class HeatingCurvePanel extends HTMLElement {
         this._toast(t("Échec : {msg}", { msg: err?.message || err }));
       }
       this._render();
+    } else if (a === "rs-edit") {
+      const it = this._rsched.items.find((x) => x.id === el.dataset.id);
+      this._rsEdit = { id: it.id, slots: it.slots.map((s) => ({ ...s })), dirty: false };
+      this._render();
+    } else if (a === "rs-cancel") {
+      this._rsEdit = null;
+      this._render();
+    } else if (a === "rs-temp") {
+      const s = this._rsEdit.slots[+el.dataset.idx];
+      s.temp = clamp(Math.round((s.temp + +el.dataset.delta) * 2) / 2, 5, 25);
+      this._rsEdit.dirty = true;
+      this._render();
+    } else if (a === "rs-del") {
+      this._rsEdit.slots.splice(+el.dataset.idx, 1);
+      this._rsEdit.dirty = true;
+      this._render();
+    } else if (a === "rs-add") {
+      const slots = this._rsEdit.slots;
+      const last = slots[slots.length - 1];
+      const start = Math.min(1410, Math.round((toMin(last.start) + (1440 - toMin(last.start)) / 2) / 30) * 30);
+      if (start > toMin(last.start)) slots.push({ start: fromMin(start), temp: last.temp });
+      this._rsEdit.dirty = true;
+      this._render();
+    } else if (a === "rs-save") {
+      const ed = this._rsEdit;
+      const it = this._rsched.items.find((x) => x.id === ed.id);
+      const starts = ed.slots.map((s) => toMin(s.start));
+      if (new Set(starts).size !== starts.length) { this._toast(t("Deux plages commencent à la même heure.")); return; }
+      const timeslots = ed.slots.map((s, i) => ({
+        start: s.start, stop: i + 1 < ed.slots.length ? ed.slots[i + 1].start : "00:00",
+        actions: [{ service: "climate.set_temperature", entity_id: it.room,
+          service_data: { ...(it.hvac ? { hvac_mode: it.hvac } : {}), temperature: s.temp } }],
+      }));
+      try {
+        await this._hass.callService("scheduler", "edit", { entity_id: it.entity, weekdays: it.weekdays, timeslots });
+        this._rsEdit = null;
+        this._rsched = null;
+        this._toast(t("Planning de la pièce enregistré"));
+      } catch (err) {
+        this._toast(t("Échec : {msg}", { msg: err?.message || err }));
+      }
+      this._render();
     } else if (a === "vsched-pre") {
       this._vpre = +el.dataset.value;
       this._render();
@@ -909,6 +987,7 @@ class HeatingCurvePanel extends HTMLElement {
       if (!await this._confirm(t("Envoyer ce planning à la chaudière ? Il remplace celui de l'appli ViCare (1 écriture ViCare)."))) return;
       try {
         this._vsched = await this._hass.callWS({ type: `${DOMAIN}/push_vicare_schedule`, preheat_minutes: this._vpre ?? 0 });
+        this._rsched = null;
         this._toast(t("Planning envoyé à la chaudière"));
       } catch (err) {
         this._toast(t("Échec : {msg}", { msg: err?.message || err }));
@@ -1106,6 +1185,7 @@ class HeatingCurvePanel extends HTMLElement {
     this._bindHover();
     this._bindSchedule();
     this._bindSettings();
+    this._bindRoomSchedules();
   }
 
   _body() {
@@ -1626,6 +1706,7 @@ class HeatingCurvePanel extends HTMLElement {
           <button class="btn" data-action="copy-monday">${t("Copier le lundi sur les jours ouvrés")}</button>
         </div></div>
       ${this._vicareScheduleCard()}
+      ${this._roomSchedulesCard()}
       ${this._roomTargetsCard()}
       <div class="card"><h2>${t("Décisions des dernières 48 h")}</h2>${timeline}</div>`;
   }
@@ -1660,7 +1741,7 @@ class HeatingCurvePanel extends HTMLElement {
     const choices = [0, 30, 60, 90, 120].map((m) =>
       `<button role="radio" aria-checked="${pre === m}" data-action="vsched-pre" data-value="${m}">${m ? `${m} min` : t("aucun")}</button>`).join("");
     return `${head}
-      <div class="stepper" style="margin-bottom:12px"><span class="name">${t("Palier normal avant le confort")}</span>
+      <div class="rs-pre"><span class="name">${t("Palier normal avant le confort")}</span>
         <div class="seg" role="radiogroup" aria-label="${t("Palier normal avant le confort")}">${choices}</div></div>
       <div class="table-wrap"><table><thead><tr><th>${t("Jour")}</th><th>${t("Actuellement dans la chaudière")}</th><th>${t("Après envoi")}</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
@@ -1669,6 +1750,139 @@ class HeatingCurvePanel extends HTMLElement {
         <button class="btn primary" data-action="vsched-push" ${this._draftDirty || !v.constraints.writable ? "disabled" : ""}>${t("Envoyer à la chaudière")}</button></div>
       ${info(t("Ta chaudière accepte {n} plages par jour au plus : les périodes confort les plus proches sont fusionnées. Un palier normal (consigne normale) avant le confort fait monter la maison en deux temps, avec un départ moins chaud.", { n: v.constraints.max_entries }))}
     </div>`;
+  }
+
+  // ---------------------------------------------------- plannings des pièces (Scheduler)
+  _ensureRoomSchedules() {
+    if (this._rsched || this._rschedLoading) return;
+    this._rschedLoading = true;
+    const rooms = new Set(this._data.rooms || []);
+    this._hass.callWS({ type: "scheduler" })
+      .then((list) => {
+        const items = list.filter((x) => x.timeslots.length && x.timeslots.every((s) =>
+          (s.actions || []).length === 1 && s.actions[0].service === "climate.set_temperature"
+          && rooms.has(s.actions[0].entity_id) && !(s.conditions || []).length
+          && s.actions[0].service_data?.temperature != null));
+        this._rsched = { items: items.map((x) => ({
+          id: x.schedule_id, entity: x.entity_id, name: x.name, enabled: x.enabled, weekdays: x.weekdays,
+          room: x.timeslots[0].actions[0].entity_id,
+          hvac: x.timeslots[0].actions[0].service_data.hvac_mode,
+          slots: x.timeslots.map((s) => ({ start: String(s.start).slice(0, 5), temp: +s.actions[0].service_data.temperature })),
+        })) };
+      })
+      .catch((err) => { this._rsched = { error: /unknown command/i.test(err?.message || "") ? "missing" : (err?.message || String(err)) }; })
+      .finally(() => { this._rschedLoading = false; this._render(); });
+  }
+
+  _scheduleDays(weekdays) {
+    const all = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const set = new Set();
+    for (const w of weekdays || []) {
+      if (w === "daily") all.forEach((d) => set.add(d));
+      else if (w === "workday") all.slice(0, 5).forEach((d) => set.add(d));
+      else if (w === "weekend") all.slice(5).forEach((d) => set.add(d));
+      else if (all.includes(w)) set.add(w);
+    }
+    return all.filter((d) => set.has(d));
+  }
+
+  _weekdaysLabel(weekdays) {
+    const names = { daily: t("Tous les jours"), workday: t("Semaine"), weekend: t("Week-end"),
+      mon: t("Lun"), tue: t("Mar"), wed: t("Mer"), thu: t("Jeu"), fri: t("Ven"), sat: t("Sam"), sun: t("Dim") };
+    return (weekdays || []).map((w) => names[w] || w).join(", ");
+  }
+
+  _roomIncoherences(items) {
+    const boiler = this._vsched && !this._vsched.error ? this._vsched.current : null;
+    if (!boiler) return [];
+    const reduced = this._data.pilot?.temps?.reduced ?? 17;
+    const reducedSpans = (day) => {
+      const on = [...(boiler[day] || [])].map((e) => [toMin(e.start), toMin(e.end)]).sort((a, b) => a[0] - b[0]);
+      const spans = []; let cur = 0;
+      for (const [s, e] of on) { if (s > cur) spans.push([cur, s]); cur = Math.max(cur, e); }
+      if (cur < 1440) spans.push([cur, 1440]);
+      return spans;
+    };
+    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const out = [];
+    for (const it of items.filter((x) => x.enabled)) {
+      const days = this._scheduleDays(it.weekdays);
+      it.slots.forEach((s, i) => {
+        if (s.temp < reduced + 1.5) return;
+        const a = toMin(s.start), b = i + 1 < it.slots.length ? toMin(it.slots[i + 1].start) : 1440;
+        let worst = null;
+        for (const d of days) {
+          for (const [rs, re] of reducedSpans(d)) {
+            const o0 = Math.max(a, rs), o1 = Math.min(b, re);
+            if (o1 - o0 >= 30 && (!worst || o1 - o0 > worst[1] - worst[0])) worst = [o0, o1];
+          }
+        }
+        if (worst) out.push(t("{room} : {temp} °C de {a} à {b} ({days}) alors que la chaudière est en réduit : avance cette plage ou prolonge le confort de la chaudière.",
+          { room: name(it.room), temp: fmt(s.temp, 1), a: fromMin(worst[0]), b: fromMin(worst[1]), days: this._weekdaysLabel(it.weekdays) }));
+      });
+    }
+    return out;
+  }
+
+  _roomSchedulesCard() {
+    this._ensureRoomSchedules();
+    const r = this._rsched;
+    const head = `<div class="card"><h2>${t("Plannings des pièces (Scheduler)")}</h2>
+      <p class="sub">${t("Consigne de chaque tête thermostatique au fil de la journée, appliquée par l'intégration Scheduler. Une pièce ne peut chauffer que si la chaudière chauffe aussi.")}</p>`;
+    if (!r) return `${head}<div class="empty">${t("Chargement…")}</div></div>`;
+    if (r.error === "missing") return `${head}<div class="empty">${t("Intégration Scheduler absente : installe-la (HACS) pour gérer les plannings des pièces ici.")}</div></div>`;
+    if (r.error) return `${head}<div class="empty err">${esc(r.error)}</div></div>`;
+    if (!r.items.length) return `${head}<div class="empty">${t("Aucun planning Scheduler ne pilote les pièces suivies.")}</div></div>`;
+    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const color = (temp) => `hsl(${Math.round(clamp(220 - (temp - 16) * 36, 20, 220))} 70% 55%)`;
+    const bar = (slots) => `<div class="rs-bar">${slots.map((s, i) => {
+      const a = toMin(s.start), b = i + 1 < slots.length ? toMin(slots[i + 1].start) : 1440;
+      return `<div style="left:${(a / 1440) * 100}%;width:${((b - a) / 1440) * 100}%;background:${color(s.temp)}" title="${s.start}–${fromMin(b)} : ${fmt(s.temp, 1)} °C">${b - a >= 120 ? `${fmt(s.temp, 1)}°` : ""}</div>`;
+    }).join("")}</div>`;
+    const edit = this._rsEdit;
+    const rows = r.items.map((it) => {
+      const slots = edit?.id === it.id ? edit.slots : it.slots;
+      const editor = edit?.id === it.id ? `
+        <div class="rs-edit"><p class="note">${t("Une plage par ligne : la consigne s'applique de son heure de début jusqu'au début de la suivante (la dernière va jusqu'à minuit).")}</p>
+        <table class="rooms"><thead><tr><th>${t("Début")}</th><th>${t("Consigne")}</th><th></th></tr></thead><tbody>
+        ${slots.map((s, i) => `<tr><td><input type="time" step="1800" data-rs-idx="${i}" value="${s.start}" ${i === 0 ? "disabled" : ""}></td>
+          <td><span class="box"><button data-action="rs-temp" data-idx="${i}" data-delta="-0.5" aria-label="${t("Diminuer")}">−</button>
+            <output>${fmt(s.temp, 1)} °C</output>
+            <button data-action="rs-temp" data-idx="${i}" data-delta="0.5" aria-label="${t("Augmenter")}">+</button></span></td>
+          <td>${i ? `<button class="btn" style="padding:2px 8px" data-action="rs-del" data-idx="${i}" aria-label="${t("Supprimer la plage")}">×</button>` : ""}</td></tr>`).join("")}
+        </tbody></table>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn" data-action="rs-add">${t("Ajouter une plage")}</button>
+          <button class="btn primary" data-action="rs-save" ${edit.dirty ? "" : "disabled"}>${t("Enregistrer")}</button>
+          <button class="btn" data-action="rs-cancel">${t("Annuler")}</button></div></div>` : "";
+      return `<div class="rs-item">
+        <div class="rs-head"><b>${esc(name(it.room))}</b> <span class="chip">${esc(this._weekdaysLabel(it.weekdays))}</span>
+          ${it.enabled ? "" : `<span class="chip">${t("désactivé")}</span>`}
+          ${edit?.id === it.id ? "" : `<button class="btn" style="padding:2px 10px;margin-left:auto" data-action="rs-edit" data-id="${esc(it.id)}">${t("Modifier")}</button>`}</div>
+        ${bar(slots)}${editor}</div>`;
+    }).join("");
+    const issues = this._roomIncoherences(r.items);
+    const coherence = this._vsched && !this._vsched.error
+      ? (issues.length
+        ? `<div class="alert" style="flex-direction:column;gap:6px">${issues.map((x) => `<div>${esc(x)}</div>`).join("")}</div>`
+        : `<p class="note">${t("Plannings cohérents avec celui de la chaudière.")}</p>`)
+      : "";
+    return `${head}${coherence}
+      <div class="rs-hours">${Array.from({ length: 9 }, (_, i) => `<span>${String(i * 3).padStart(2, "0")}h</span>`).join("")}</div>
+      ${rows}
+      ${info(t("Les plannings avec conditions ou plusieurs actions restent modifiables dans Scheduler uniquement."))}</div>`;
+  }
+
+  _bindRoomSchedules() {
+    this.shadowRoot.querySelectorAll("input[data-rs-idx]").forEach((el) => {
+      el.addEventListener("change", () => {
+        if (!this._rsEdit || !el.value) return;
+        this._rsEdit.slots[+el.dataset.rsIdx].start = el.value.slice(0, 5);
+        this._rsEdit.slots.sort((a, b) => toMin(a.start) - toMin(b.start));
+        this._rsEdit.dirty = true;
+        this._render();
+      });
+    });
   }
 
   _roomTargetsCard() {

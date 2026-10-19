@@ -64,6 +64,10 @@ de ViCare est coupée et l'optimiseur la rafraîchit lui-même (~290 appels par 
 (ViCare) »), en respectant ses contraintes (nombre de plages par jour, pas de 10 min), avec un palier « normal »
 facultatif avant le confort pour monter en deux temps. Il passe par la connexion de l'intégration ViCare.
 
+**Plannings des pièces** : si l'intégration [Scheduler](https://github.com/nielsfaber/scheduler-component) pilote les têtes
+thermostatiques, leurs plannings s'affichent et se modifient dans l'onglet Planning, avec une alerte quand une pièce
+demande de la chaleur alors que la chaudière est en réduit.
+
 En **simulation**, le pilote calcule et affiche ses décisions sans rien écrire. En **actif**, les consignes
 d'origine (chaudière et pièces) sont mémorisées et remises au retour en simulation / désactivé.
 Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus pour la chaudière.
