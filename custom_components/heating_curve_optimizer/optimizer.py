@@ -69,7 +69,7 @@ from .analysis import (
     find_recoveries,
     recovery_advice,
 )
-from .control import balance_rooms, gas_cost, thermal_balance, weekly_report
+from .control import balance_rooms, gas_cost, thermal_balance, vicare_schedule, weekly_report
 from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
 from .messages import translate
 from .settings_spec import EMPTY, FIELDS, SECTIONS, validate
@@ -1139,6 +1139,77 @@ class HeatingCurveOptimizer:
                 self.hass.config_entries.async_update_entry(vicare, pref_disable_polling=False)
                 self.hass.config_entries.async_schedule_reload(vicare.entry_id)
             self._save()
+
+    # ---------------------------------------------------- planning de la chaudière
+
+    def _vicare_schedule_access(self) -> tuple[list, str]:
+        """Services PyViCare de l'intégration ViCare déjà connectée, et propriété du planning du circuit."""
+        vicare = self._vicare_entry()
+        data = getattr(vicare, "runtime_data", None) if vicare else None
+        services = [s for d in getattr(data, "devices", None) or []
+                    if (s := getattr(getattr(d, "api", None), "service", None)) is not None]
+        climate = er.async_get(self.hass).async_get(self.cfg[CONF_CLIMATE])
+        circuit = climate.unique_id.rsplit("-", 1)[-1] if climate and climate.unique_id else "0"
+        return services, f"heating.circuits.{circuit if circuit.isdigit() else '0'}.heating.schedule"
+
+    async def _async_read_vicare_schedule(self) -> tuple[object, dict]:
+        services, prop = self._vicare_schedule_access()
+
+        def read():
+            for service in services:
+                try:
+                    feature = service.getProperty(prop)
+                except Exception:  # noqa: BLE001 — appareil sans ce planning
+                    continue
+                if feature and "entries" in (feature.get("properties") or {}):
+                    return service, feature
+            return None, {}
+
+        service, feature = await self.hass.async_add_executor_job(read)
+        if service is None:
+            raise RuntimeError(self.tr("Planning de la chaudière indisponible (intégration ViCare non chargée ?)"))
+        return service, feature
+
+    @staticmethod
+    def _schedule_constraints(feature: dict) -> dict:
+        command = (feature.get("commands") or {}).get("setSchedule") or {}
+        c = (((command.get("params") or {}).get("newSchedule") or {}).get("constraints")) or {}
+        return {
+            "max_entries": int(c.get("maxEntries", 4)),
+            "resolution": int(c.get("resolution", 10)),
+            "modes": list(c.get("modes", ["normal", "comfort"])),
+            "writable": bool(command.get("isExecutable", False)),
+        }
+
+    async def async_vicare_schedule(self) -> dict:
+        """Planning actuel de la chaudière et ce que donnerait l'envoi du planning du panneau."""
+        _service, feature = await self._async_read_vicare_schedule()
+        c = self._schedule_constraints(feature)
+        args = (c["max_entries"], c["resolution"], c["modes"])
+        return {
+            "current": ((feature.get("properties") or {}).get("entries") or {}).get("value") or {},
+            "constraints": c,
+            "preheat_minutes": int(self.data.get("vicare_preheat_minutes", 0)),
+            "proposals": {str(m): vicare_schedule(self.data["schedule"], m, *args) for m in (0, 30, 60, 90, 120)},
+        }
+
+    async def async_push_vicare_schedule(self, preheat_minutes: int) -> dict:
+        """Écrit le planning du panneau dans la chaudière (une écriture du budget ViCare)."""
+        if self.writes_24h >= self.write_budget:
+            raise RuntimeError(self.tr("Budget d'écritures ViCare atteint : réessaie plus tard"))
+        service, feature = await self._async_read_vicare_schedule()
+        c = self._schedule_constraints(feature)
+        if not c["writable"]:
+            raise RuntimeError(self.tr("La chaudière n'accepte pas l'écriture du planning"))
+        new = vicare_schedule(self.data["schedule"], preheat_minutes, c["max_entries"], c["resolution"], c["modes"])
+        _services, prop = self._vicare_schedule_access()
+        try:
+            await self.hass.async_add_executor_job(service.setProperty, prop, "setSchedule", {"newSchedule": new})
+        except Exception as err:  # noqa: BLE001
+            raise RuntimeError(self.tr("ViCare a refusé le planning : {err}").format(err=err)) from err
+        self.data["vicare_preheat_minutes"] = int(preheat_minutes)
+        self.register_write()
+        return {**await self.async_vicare_schedule(), "current": new}
 
     async def _async_refresh_vicare(self, _now=None) -> None:
         vicare = self._vicare_entry()

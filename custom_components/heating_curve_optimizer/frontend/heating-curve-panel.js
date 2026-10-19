@@ -333,6 +333,22 @@ const EN = {
   "Sam": "Sat",
   "Dim": "Sun",
   "Planning hebdomadaire": "Weekly schedule",
+  "Planning de la chaudière (ViCare)": "Boiler schedule (ViCare)",
+  "Le planning ci-dessus peut être envoyé à la chaudière : il remplace celui de l'appli ViCare. Hors plages, la chaudière est en réduit.":
+    "The schedule above can be sent to the boiler: it replaces the one in the ViCare app. Outside the slots, the boiler runs reduced.",
+  "Palier normal avant le confort": "Normal step before comfort",
+  "Actuellement dans la chaudière": "Currently in the boiler",
+  "Après envoi": "After sending",
+  "Envoyer à la chaudière": "Send to the boiler",
+  "Envoyer ce planning à la chaudière ? Il remplace celui de l'appli ViCare (1 écriture ViCare).":
+    "Send this schedule to the boiler? It replaces the one in the ViCare app (1 ViCare write).",
+  "Planning envoyé à la chaudière": "Schedule sent to the boiler",
+  "réduit toute la journée": "reduced all day",
+  "normal": "normal",
+  "confort": "comfort",
+  "Ta chaudière accepte {n} plages par jour au plus : les périodes confort les plus proches sont fusionnées. Un palier normal (consigne normale) avant le confort fait monter la maison en deux temps, avec un départ moins chaud.":
+    "Your boiler accepts at most {n} slots per day: the closest comfort periods are merged. A normal step (normal setpoint) before comfort warms the house in two stages, with a cooler flow.",
+  "Enregistre d'abord le planning du panneau.": "Save the panel schedule first.",
   "Aucune décision enregistrée pour l'instant.": "No decisions recorded yet.",
   "Pilotage de la consigne": "Setpoint pilot",
   "Veille : {v} °C après {m} min sans demande de chaleur.": "Standby: {v} °C after {m} min without heat demand.",
@@ -880,7 +896,20 @@ class HeatingCurvePanel extends HTMLElement {
           comfort: this._draftTemps.comfort, reduced: this._draftTemps.reduced,
         });
         this._draft = null;
+        this._vsched = null;
         this._toast(t("Planning enregistré"));
+      } catch (err) {
+        this._toast(t("Échec : {msg}", { msg: err?.message || err }));
+      }
+      this._render();
+    } else if (a === "vsched-pre") {
+      this._vpre = +el.dataset.value;
+      this._render();
+    } else if (a === "vsched-push") {
+      if (!await this._confirm(t("Envoyer ce planning à la chaudière ? Il remplace celui de l'appli ViCare (1 écriture ViCare)."))) return;
+      try {
+        this._vsched = await this._hass.callWS({ type: `${DOMAIN}/push_vicare_schedule`, preheat_minutes: this._vpre ?? 0 });
+        this._toast(t("Planning envoyé à la chaudière"));
       } catch (err) {
         this._toast(t("Échec : {msg}", { msg: err?.message || err }));
       }
@@ -1596,8 +1625,50 @@ class HeatingCurvePanel extends HTMLElement {
           <button class="btn" data-action="import-trv" ${p.trv_suggestion ? "" : "disabled"}>${t("Importer depuis les têtes thermostatiques")}</button>
           <button class="btn" data-action="copy-monday">${t("Copier le lundi sur les jours ouvrés")}</button>
         </div></div>
+      ${this._vicareScheduleCard()}
       ${this._roomTargetsCard()}
       <div class="card"><h2>${t("Décisions des dernières 48 h")}</h2>${timeline}</div>`;
+  }
+
+  _ensureVicareSchedule() {
+    if (this._vsched || this._vschedLoading) return;
+    this._vschedLoading = true;
+    this._hass.callWS({ type: `${DOMAIN}/vicare_schedule` })
+      .then((r) => { this._vsched = r; if (this._vpre == null) this._vpre = r.preheat_minutes; })
+      .catch((err) => { this._vsched = { error: err?.message || String(err) }; })
+      .finally(() => { this._vschedLoading = false; this._render(); });
+  }
+
+  _vicareScheduleCard() {
+    this._ensureVicareSchedule();
+    const v = this._vsched;
+    const head = `<div class="card"><h2>${t("Planning de la chaudière (ViCare)")}</h2>
+      <p class="sub">${t("Le planning ci-dessus peut être envoyé à la chaudière : il remplace celui de l'appli ViCare. Hors plages, la chaudière est en réduit.")}</p>`;
+    if (!v) return `${head}<div class="empty">${t("Chargement…")}</div></div>`;
+    if (v.error) return `${head}<div class="empty err">${esc(v.error)}</div></div>`;
+    const pre = this._vpre ?? 0;
+    const after = v.proposals[String(pre)] || {};
+    const keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const days = [t("Lun"), t("Mar"), t("Mer"), t("Jeu"), t("Ven"), t("Sam"), t("Dim")];
+    const label = (entries) => (entries || []).length
+      ? [...entries].sort((a, b) => a.start.localeCompare(b.start))
+        .map((x) => `${esc(x.start)}–${esc(x.end)} ${t(x.mode === "comfort" ? "confort" : x.mode)}`).join(", ")
+      : t("réduit toute la journée");
+    const same = (d) => label(v.current[d]) === label(after[d]);
+    const rows = keys.map((k, i) => `<tr><td>${days[i]}</td><td>${label(v.current[k])}</td>
+      <td style="${same(k) ? "" : "font-weight:600"}">${label(after[k])}</td></tr>`).join("");
+    const choices = [0, 30, 60, 90, 120].map((m) =>
+      `<button role="radio" aria-checked="${pre === m}" data-action="vsched-pre" data-value="${m}">${m ? `${m} min` : t("aucun")}</button>`).join("");
+    return `${head}
+      <div class="stepper" style="margin-bottom:12px"><span class="name">${t("Palier normal avant le confort")}</span>
+        <div class="seg" role="radiogroup" aria-label="${t("Palier normal avant le confort")}">${choices}</div></div>
+      <div class="table-wrap"><table><thead><tr><th>${t("Jour")}</th><th>${t("Actuellement dans la chaudière")}</th><th>${t("Après envoi")}</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      ${this._draftDirty ? `<p class="note">${t("Enregistre d'abord le planning du panneau.")}</p>` : ""}
+      <div class="actions" style="margin-top:12px">
+        <button class="btn primary" data-action="vsched-push" ${this._draftDirty || !v.constraints.writable ? "disabled" : ""}>${t("Envoyer à la chaudière")}</button></div>
+      ${info(t("Ta chaudière accepte {n} plages par jour au plus : les périodes confort les plus proches sont fusionnées. Un palier normal (consigne normale) avant le confort fait monter la maison en deux temps, avec un départ moins chaud.", { n: v.constraints.max_entries }))}
+    </div>`;
   }
 
   _roomTargetsCard() {

@@ -37,8 +37,7 @@ only cover a narrow temperature range, so the curve converges within days.
 
 ## Setpoint pilot (off / dry run / active)
 
-ViCare can neither edit the boiler's schedule nor force a program, so the pilot acts on the
-**active program's setpoint**, like the ViCare app. It applies:
+The pilot acts on the **active program's setpoint**, like the ViCare app. It applies:
 
 - a **weekly schedule** edited in the panel (30-minute grid), importable from your thermostatic radiator
   valve heads' schedules;
@@ -59,6 +58,10 @@ ViCare access for 24 h.
 **Freeing the quota**: with the "Refresh ViCare every … min" option (5 recommended), ViCare's automatic polling is
 turned off and the optimizer refreshes it itself (~290 calls per day instead of ~1,440, plus a re-read 70 s after each
 write). The write budget can then go up to 30-40. Setting the option back to 0 hands polling back to ViCare.
+
+**Boiler schedule**: the panel schedule can be sent to the boiler ("Boiler schedule (ViCare)" card), within its
+constraints (slots per day, 10-minute steps), with an optional "normal" step before comfort to warm up in two stages.
+It goes through the ViCare integration's connection.
 
 In **dry run** the pilot computes and shows its decisions without writing anything. When **active**, the
 original setpoints (boiler and rooms) are saved and restored when switching back to dry run / off.

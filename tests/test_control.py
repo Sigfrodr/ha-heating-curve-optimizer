@@ -142,3 +142,23 @@ def test_balance_rooms_internal_gains():
     assert abs(res["parents"].relative - 0.010 / 0.00835) < 1e-9
     assert res["cuisine"].internal_gains and "à confirmer" in res["cuisine"].advice
     assert "refermer" in {r.entity_id: r for r in balance_rooms(rooms)}["cuisine"].advice
+
+
+def test_vicare_schedule_conversion():
+    from control import vicare_schedule  # noqa: PLC0415
+
+    week = {str(d): [["07:00", "22:30"]] for d in range(7)}
+    week["5"] = [["08:00", "12:00"], ["12:30", "14:00"], ["18:00", "23:00"]]  # trop de plages
+    week["6"] = []
+    out = vicare_schedule(week, preheat_minutes=90, max_entries=2, resolution=10)
+    assert out["mon"] == [
+        {"start": "05:30", "end": "07:00", "mode": "normal", "position": 0},
+        {"start": "07:00", "end": "22:30", "mode": "comfort", "position": 1},
+    ]
+    # samedi : 3 périodes → les deux plus proches fusionnées, plus de place pour le palier
+    assert [(x["start"], x["end"], x["mode"]) for x in out["sat"]] == [("08:00", "14:00", "comfort"), ("18:00", "23:00", "comfort")]
+    assert out["sun"] == []
+    assert vicare_schedule(week, 0, 2)["mon"] == [{"start": "07:00", "end": "22:30", "mode": "comfort", "position": 0}]
+    # palier limité à minuit, et période jusqu'à 24:00
+    early = vicare_schedule({"0": [["00:30", "24:00"]]}, 60, 2)
+    assert early["mon"][0]["start"] == "00:00" and early["mon"][1]["end"] == "24:00"

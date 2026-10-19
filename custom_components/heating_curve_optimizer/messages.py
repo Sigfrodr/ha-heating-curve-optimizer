@@ -93,6 +93,11 @@ CATALOG: dict[str, dict[str, str]] = {
         "chauffe bien plus lentement : ouvrir son té de réglage, purger, ou radiateur trop petit":
             "heats much more slowly: open its lockshield valve, bleed it, or the radiator is too small",
         "équilibrée": "balanced",
+        "Planning de la chaudière indisponible (intégration ViCare non chargée ?)":
+            "Boiler schedule unavailable (ViCare integration not loaded?)",
+        "Budget d'écritures ViCare atteint : réessaie plus tard": "ViCare write budget reached: try again later",
+        "La chaudière n'accepte pas l'écriture du planning": "The boiler does not accept schedule writes",
+        "ViCare a refusé le planning : {err}": "ViCare rejected the schedule: {err}",
         "à confirmer : la cuisson ou une autre source de chaleur peut gonfler la mesure":
             "to be confirmed: cooking or another heat source can inflate the measurement",
         # rapport hebdomadaire

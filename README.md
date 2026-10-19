@@ -38,8 +38,7 @@ ne couvrent qu'une petite plage de températures, et permet de converger en quel
 
 ## Pilotage de la consigne (désactivé / simulation / actif)
 
-ViCare ne permet ni de modifier le planning de la chaudière ni de forcer un programme : le pilote agit
-sur la **consigne du programme actif**, comme l'appli ViCare. Il applique :
+Le pilote agit sur la **consigne du programme actif**, comme l'appli ViCare. Il applique :
 
 - un **planning hebdomadaire** édité dans le panneau (grille par pas de 30 min), importable depuis les
   plannings des têtes thermostatiques ;
@@ -60,6 +59,10 @@ est atteint. Dépasser le quota bloque l'accès ViCare pendant 24 h.
 **Libérer le quota** : avec l'option « Rafraîchir ViCare toutes les … min » (5 conseillé), l'interrogation automatique
 de ViCare est coupée et l'optimiseur la rafraîchit lui-même (~290 appels par jour au lieu de ~1 440, et une relecture
 70 s après chaque écriture). Le budget d'écritures peut alors monter à 30-40. Remettre l'option à 0 rend la main à ViCare.
+
+**Planning de la chaudière** : le planning du panneau peut être envoyé à la chaudière (carte « Planning de la chaudière
+(ViCare) »), en respectant ses contraintes (nombre de plages par jour, pas de 10 min), avec un palier « normal »
+facultatif avant le confort pour monter en deux temps. Il passe par la connexion de l'intégration ViCare.
 
 En **simulation**, le pilote calcule et affiche ses décisions sans rien écrire. En **actif**, les consignes
 d'origine (chaudière et pièces) sont mémorisées et remises au retour en simulation / désactivé.

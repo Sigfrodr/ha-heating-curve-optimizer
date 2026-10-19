@@ -44,6 +44,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_set_room_targets)
         websocket_api.async_register_command(hass, ws_set_maintenance)
         websocket_api.async_register_command(hass, ws_set_internal_gains)
+        websocket_api.async_register_command(hass, ws_vicare_schedule)
+        websocket_api.async_register_command(hass, ws_push_vicare_schedule)
         websocket_api.async_register_command(hass, ws_set_heating_limit)
         websocket_api.async_register_command(hass, ws_get_settings)
         websocket_api.async_register_command(hass, ws_set_settings)
@@ -243,6 +245,20 @@ async def ws_set_internal_gains(hass: HomeAssistant, connection, msg: dict) -> N
         return await o.async_diagnostics()
 
     await _run(hass, connection, msg, run)
+
+
+@_command("vicare_schedule")
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_vicare_schedule(hass: HomeAssistant, connection, msg: dict) -> None:
+    await _run(hass, connection, msg, lambda o: o.async_vicare_schedule())
+
+
+@_command("push_vicare_schedule", {vol.Required("preheat_minutes"): vol.All(vol.Coerce(int), vol.Range(min=0, max=180))})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_push_vicare_schedule(hass: HomeAssistant, connection, msg: dict) -> None:
+    await _run(hass, connection, msg, lambda o: o.async_push_vicare_schedule(msg["preheat_minutes"]))
 
 
 @_command("set_heating_limit", {vol.Required("value"): vol.All(vol.Coerce(float), vol.Range(min=8, max=22))})

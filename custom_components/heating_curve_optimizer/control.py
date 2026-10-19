@@ -82,6 +82,48 @@ def normalize_schedule(schedule: dict) -> dict[int, list[list[str]]]:
     return out
 
 
+VICARE_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def vicare_schedule(
+    schedule: dict,
+    preheat_minutes: int = 0,
+    max_entries: int = 4,
+    resolution: int = 10,
+    modes: tuple[str, ...] | list[str] = ("normal", "comfort"),
+) -> dict[str, list[dict]]:
+    """Planning du panneau (périodes confort, lundi = 0) → planning de la chaudière ViCare.
+
+    La chaudière limite le nombre de plages par jour : les périodes confort les plus proches sont
+    fusionnées jusqu'à tenir. S'il reste une plage libre, un palier « normal » de `preheat_minutes`
+    précède la première période confort (montée en deux temps, départ moins chaud). Hors plages :
+    réduit (mode par défaut de la chaudière).
+    """
+    out: dict[str, list[dict]] = {}
+    for day, name in enumerate(VICARE_DAYS):
+        raw = schedule.get(day, schedule.get(str(day), []))
+        periods = [list(p) for p in merge_periods([(to_minutes(s), to_minutes(e)) for s, e in raw])]
+        while len(periods) > max(1, max_entries):
+            i = min(range(len(periods) - 1), key=lambda k: periods[k + 1][0] - periods[k][1])
+            periods[i][1] = periods.pop(i + 1)[1]
+        entries = [{"start": s, "end": e, "mode": "comfort"} for s, e in periods]
+        if preheat_minutes > 0 and "normal" in modes and entries and len(entries) < max_entries:
+            first = entries[0]["start"]
+            if first > 0:
+                entries.insert(0, {"start": max(0, first - preheat_minutes), "end": first, "mode": "normal"})
+
+        def rounded(minutes: int) -> int:
+            return min(1440, round(minutes / resolution) * resolution)
+
+        out[name] = [
+            {"start": fmt_minutes(rounded(x["start"])), "end": fmt_minutes(rounded(x["end"])),
+             "mode": x["mode"], "position": i}
+            for i, x in enumerate(entries)
+            if rounded(x["end"]) > rounded(x["start"])
+        ]
+    return out
+
+
 def in_comfort(schedule: dict, weekday: int, minute: int) -> bool:
     for start, end in schedule.get(weekday, schedule.get(str(weekday), [])):
         if to_minutes(start) <= minute < to_minutes(end):
