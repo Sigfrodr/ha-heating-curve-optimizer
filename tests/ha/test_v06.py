@@ -146,3 +146,30 @@ async def test_internal_gains_websocket(hass: HomeAssistant, vicare, hass_ws_cli
     assert cuisine["internal_gains"] and "à confirmer" in cuisine["advice"]
     assert entry.runtime_data.data["internal_gains"] == ["climate.cuisine"]
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_secret_token_never_sent_to_panel(hass: HomeAssistant, vicare, hass_ws_client):
+    from homeassistant.components import websocket_api
+
+    from custom_components.heating_curve_optimizer import panel
+
+    from .test_linky import _token
+
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    for command in (panel.ws_get_settings, panel.ws_set_settings):
+        websocket_api.async_register_command(hass, command)
+    client = await hass_ws_client(hass)
+    token = _token(["12345678901234"])
+    await client.send_json_auto_id({"type": "heating_curve_optimizer/set_settings", "values": {"linky_token": token}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert entry.options["linky_token"] == token
+    await client.send_json_auto_id({"type": "heating_curve_optimizer/get_settings"})
+    data = (await client.receive_json())["result"]
+    assert data["values"]["linky_token"] == "" and data["secret_set"]["linky_token"] is True
+    # champ laissé vide : le jeton enregistré est conservé
+    await client.send_json_auto_id({"type": "heating_curve_optimizer/set_settings", "values": {"linky_token": "", "gas_price": 0.1}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert entry.options["linky_token"] == token and entry.options["gas_price"] == 0.1
+    await hass.config_entries.async_unload(entry.entry_id)

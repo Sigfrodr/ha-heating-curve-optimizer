@@ -93,6 +93,11 @@ CATALOG: dict[str, dict[str, str]] = {
         "chauffe bien plus lentement : ouvrir son té de réglage, purger, ou radiateur trop petit":
             "heats much more slowly: open its lockshield valve, bleed it, or the radiator is too small",
         "équilibrée": "balanced",
+        "Compteur Linky": "Linky meter",
+        "Conso API refuse le jeton (expiré ou révoqué) : renouvelle-le sur conso.boris.sh, puis colle-le "
+        "dans l'onglet Réglages du panneau.":
+            "Conso API rejects the token (expired or revoked): renew it on conso.boris.sh, then paste it "
+            "in the panel's Settings tab.",
         "Planning de la chaudière indisponible (intégration ViCare non chargée ?)":
             "Boiler schedule unavailable (ViCare integration not loaded?)",
         "Budget d'écritures ViCare atteint : réessaie plus tard": "ViCare write budget reached: try again later",

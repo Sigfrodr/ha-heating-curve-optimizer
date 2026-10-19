@@ -336,6 +336,19 @@ const EN = {
   "Planning de la chaudière (ViCare)": "Boiler schedule (ViCare)",
   "Plannings des pièces (Scheduler)": "Room schedules (Scheduler)",
   "Chauffage électrique d'appoint": "Electric backup heating",
+  "•••• enregistré — colle un nouveau jeton pour le remplacer": "•••• saved — paste a new token to replace it",
+  "non renseigné": "not set",
+  "Électricité de la maison (Linky)": "Household electricity (Linky)",
+  "Consommation journalière du compteur, relevée par Enedis (via Conso API) avec un jour de décalage.":
+    "Daily meter consumption, read by Enedis (via Conso API) with a one-day delay.",
+  "compteur …{v}": "meter …{v}",
+  "dernier jour reçu : {d}": "last day received: {d}",
+  "import en cours…": "import in progress…",
+  "Pas encore de données : l'historique s'importe dans les minutes qui suivent l'enregistrement du jeton.":
+    "No data yet: the history is imported within minutes of saving the token.",
+  "part du sèche-serviettes (30 j)": "towel rail share (30 d)",
+  "Dans le tableau Énergie de Home Assistant, ajoute la source « Linky – consommation » dans « Consommation du réseau électrique ».":
+    "In Home Assistant's Energy dashboard, add the « Linky – consommation » source under « Grid consumption ».",
   "Consommation estimée par Versatile Thermostat (puissance × temps de chauffe), au prix de l'électricité des Réglages.":
     "Consumption estimated by Versatile Thermostat (power × heating time), at the electricity price from the Settings.",
   "kWh sur 7 j": "kWh over 7 d",
@@ -1344,7 +1357,7 @@ class HeatingCurvePanel extends HTMLElement {
     const iso = (ms) => new Date(ms).toISOString();
     const elec = this._data.electric || [];
     const daily = [this._data.gas_source?.entity || e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours,
-      ...elec.map((x) => x.energy)].filter(Boolean);
+      ...elec.map((x) => x.energy), this._data.linky?.statistic_id].filter(Boolean);
     const hourly = [e.supply, e.modulation, e.gas_dhw_day, ...elec.map((x) => x.humidity)].filter(Boolean);
     const startDay = new Date(now - 60 * DAY);
     startDay.setHours(0, 0, 0, 0);
@@ -1503,8 +1516,37 @@ class HeatingCurvePanel extends HTMLElement {
         "Relevés ViCare corrigés de {p} % d'après le compteur Gazpar ({n} mois comparés). La prévision de facture utilise directement les relevés du compteur.",
         { p: fmt((this._data.calibration.ratio - 1) * 100, 0, true), n: this._data.calibration.months })}</div></div></div>` : ""}
       ${this._billCard()}
+      ${this._linkyCard(pal)}
       ${this._electricCard(pal)}
       ${this._recoveryCard()}`;
+  }
+
+  _linkyCard(pal) {
+    const lk = this._data.linky;
+    if (!lk) return "";
+    const price = this._data.costs.elec_price;
+    const head = `<div class="card"><h2>${t("Électricité de la maison (Linky)")}</h2>
+      <p class="sub">${t("Consommation journalière du compteur, relevée par Enedis (via Conso API) avec un jour de décalage.")}
+        ${lk.prm_end ? t("compteur …{v}", { v: esc(lk.prm_end) }) : ""}
+        · ${lk.status === "ok" ? (lk.last_day ? t("dernier jour reçu : {d}", { d: esc(lk.last_day) }) : "") : lk.status ? `<span class="err">${esc(lk.status)}</span>` : t("import en cours…")}</p>`;
+    if (!this._stats || this._stats.error) return `${head}</div>`;
+    const days = this._dailySeries(lk.statistic_id, "change").slice(-30).map((r) => ({ t: r.t, v: Math.max(0, r.v) }));
+    if (!days.length) return `${head}<p class="note">${t("Pas encore de données : l'historique s'importe dans les minutes qui suivent l'enregistrement du jeton.")}</p></div>`;
+    const sum = (list) => list.reduce((a, x) => a + x.v, 0);
+    const k7 = sum(days.slice(-7)), k30 = sum(days);
+    const heater = (this._data.electric || []).find((x) => x.energy);
+    const rail = heater ? this._dailySeries(heater.energy, "change").slice(-30).reduce((a, r) => a + Math.max(0, r.v), 0) : null;
+    return `${head}
+      <div class="kpis">
+        <div class="kpi"><div class="v">${fmt(k7, 0)} <small>${t("≈ {v} €", { v: fmt(k7 * price, 0) })}</small></div><div class="l">${t("kWh sur 7 j")}</div></div>
+        <div class="kpi"><div class="v">${fmt(k30, 0)} <small>${t("≈ {v} €", { v: fmt(k30 * price, 0) })}</small></div><div class="l">${t("kWh sur 30 j")}</div></div>
+        ${rail != null && k30 > 0 ? `<div class="kpi"><div class="v">${fmt((rail / k30) * 100, 1)} %</div><div class="l">${t("part du sèche-serviettes (30 j)")}</div></div>` : ""}
+      </div>
+      ${this._columnChart("linky", days, (x) => x.v, pal.s2, {
+        fmtY: (v) => fmt(v, 0),
+        tip: (x) => `<b>${dayLabel(x.t)}</b><div>${t("{v} kWh", { v: fmt(x.v, 1) })} · ${t("≈ {v} €", { v: fmt(x.v * price, 2) })}</div>`,
+      })}
+      ${info(t("Dans le tableau Énergie de Home Assistant, ajoute la source « Linky – consommation » dans « Consommation du réseau électrique »."))}</div>`;
   }
 
   _electricCard(pal) {
@@ -2145,6 +2187,9 @@ class HeatingCurvePanel extends HTMLElement {
           return `<select data-key="${f.key}">${opt(f.domain === "weather" ? ch.weather : ch.sensor, val, true)}</select>`;
         case "notify":
           return `<select data-key="${f.key}">${opt(ch.notify.map((s) => ({ value: s, label: s })), val, true)}</select>`;
+        case "secret":
+          return `<input type="password" autocomplete="off" data-key="${f.key}" value="${esc(val || "")}"
+            placeholder="${esc(def.secret_set?.[f.key] ? t("•••• enregistré — colle un nouveau jeton pour le remplacer") : t("non renseigné"))}">`;
         default:
           return `<input type="text" data-key="${f.key}" value="${esc(val || "")}">`;
       }

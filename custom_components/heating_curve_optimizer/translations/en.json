@@ -52,7 +52,7 @@
           },
           "costs_report": {
             "name": "Costs and weekly report",
-            "description": "Gas price per kWh (from your bill, standing charge excluded) and calorific value (kWh per m³, on the bill, usually 10.5 to 11.5).",
+            "description": "Gas price per kWh (from your bill, standing charge excluded) and calorific value (kWh per m³, on the bill, usually 10.5 to 11.5). Linky meter: token obtained on conso.boris.sh after Enedis consent; daily consumption is imported into statistics (Energy dashboard).",
             "data": {
               "gas_price": "Gas price",
               "kwh_per_m3": "m³ → kWh conversion",
@@ -60,7 +60,8 @@
               "report_weekday": "Report day",
               "report_time": "Report time",
               "gas_meter": "Gas meter (Gazpar…), takes precedence over ViCare readings",
-              "elec_price": "Electricity price"
+              "elec_price": "Electricity price",
+              "linky_token": "Conso API token (Linky meter, conso.boris.sh)"
             }
           },
           "billing": {

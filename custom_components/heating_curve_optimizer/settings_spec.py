@@ -31,6 +31,7 @@ FIELDS: list[dict] = [
     _n("gas_price", "costs_report", 0.01, 1, 0.001, "€/kWh"),
     _n("kwh_per_m3", "costs_report", 8, 13, 0.01, "kWh/m³"),
     _n("elec_price", "costs_report", 0.01, 1, 0.001, "€/kWh"),
+    {"key": "linky_token", "section": "costs_report", "kind": "secret", "optional": True},
     {"key": "gas_meter", "section": "costs_report", "kind": "entity", "domain": "sensor", "optional": True},
     {"key": "weekly_report", "section": "costs_report", "kind": "bool"},
     {"key": "report_weekday", "section": "costs_report", "kind": "weekday"},
@@ -69,7 +70,8 @@ FIELDS: list[dict] = [
 ]
 
 # Valeur vide des champs facultatifs (les entrées existantes n'ont pas toujours la clé)
-EMPTY = {"notify": "", "weather": "", "rooms": [], "gas_meter": "", "billing_start": ""}
+EMPTY = {"notify": "", "weather": "", "rooms": [], "gas_meter": "", "billing_start": "", "linky_token": ""}
+SECRETS = {f["key"] for f in FIELDS if f["kind"] == "secret"}
 
 
 def validate(values: dict) -> dict:
@@ -99,6 +101,14 @@ def validate(values: dict) -> dict:
             from datetime import date  # noqa: PLC0415
 
             out[key] = date.fromisoformat(str(value)).isoformat() if value else ""
+        elif kind == "secret":
+            token = str(value or "").strip()
+            if token:
+                from .linky import token_prms  # noqa: PLC0415
+
+                if not token_prms(token):
+                    raise ValueError(f"{key} : jeton Conso API invalide")
+            out[key] = token
         elif kind in ("entities", "programs"):
             if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
                 raise ValueError(f"{key} : liste attendue")

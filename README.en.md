@@ -97,6 +97,10 @@ Set the gas price per kWh and the m³ → kWh conversion (from your bill) in the
 
 - `sensor.…_gas_price` (EUR/m³): pick it as the **price entity** of the gas sources in the Energy dashboard
   (sources = ViCare daily gas consumption sensors);
+- **Linky meter**: with a [Conso API](https://conso.boris.sh) token (Enedis consent given on the site, token pasted in the
+  Settings, never sent back to the browser), the meter's daily consumption is imported every morning into statistics
+  (`heating_curve_optimizer:linky_<PRM>`, up to 3 years of history): « Linky – consommation » source for the Energy
+  dashboard, and « Household electricity » card in the Savings tab;
 - **Electric backup heating** (Versatile Thermostat heaters, e.g. towel rail): kWh and € over 7 and 30 days, room
   humidity and detected showers, in the Savings tab (electricity price in the Settings);
 - `sensor.…_heating_gas_cost_today` and `…_hot_water_gas_cost_today` (EUR, reset daily).

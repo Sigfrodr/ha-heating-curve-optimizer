@@ -52,7 +52,7 @@
           },
           "costs_report": {
             "name": "Coûts et rapport hebdomadaire",
-            "description": "Prix du kWh de gaz (facture, abonnement exclu) et pouvoir calorifique (kWh par m³, indiqué sur la facture, souvent 10,5 à 11,5).",
+            "description": "Prix du kWh de gaz (facture, abonnement exclu) et pouvoir calorifique (kWh par m³, indiqué sur la facture, souvent 10,5 à 11,5). Compteur Linky : jeton obtenu sur conso.boris.sh après accord Enedis ; la consommation journalière est importée dans les statistiques (tableau Énergie).",
             "data": {
               "gas_price": "Prix du gaz",
               "kwh_per_m3": "Conversion m³ → kWh",
@@ -60,7 +60,8 @@
               "report_weekday": "Jour du bilan",
               "report_time": "Heure du bilan",
               "gas_meter": "Compteur de gaz (Gazpar…), prioritaire sur les relevés ViCare",
-              "elec_price": "Prix de l'électricité"
+              "elec_price": "Prix de l'électricité",
+              "linky_token": "Jeton Conso API (compteur Linky, conso.boris.sh)"
             }
           },
           "billing": {

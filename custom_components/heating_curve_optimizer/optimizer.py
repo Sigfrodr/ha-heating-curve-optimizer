@@ -72,7 +72,8 @@ from .analysis import (
 from .control import balance_rooms, gas_cost, thermal_balance, vicare_schedule, weekly_report
 from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
 from .messages import translate
-from .settings_spec import EMPTY, FIELDS, SECTIONS, validate
+from .linky import LinkyError, LinkyImporter
+from .settings_spec import EMPTY, FIELDS, SECRETS, SECTIONS, validate
 from .insights import (
     bill_forecast,
     calibration_ratio,
@@ -203,6 +204,11 @@ class HeatingCurveOptimizer:
         await self.pilot.async_start()
         self._unsubs.append(async_call_later(self.hass, 300, self.async_update_calibration))
         self._setup_vicare_refresh()
+        if token := self.cfg.get("linky_token"):
+            self._linky = LinkyImporter(self.hass, DOMAIN, token)
+            self._unsubs.append(async_call_later(self.hass, 90, self._async_linky_update))
+            # Enedis publie la veille dans la matinée
+            self._unsubs.append(async_track_time_change(self.hass, self._async_linky_update, hour=10, minute=30, second=0))
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
@@ -838,7 +844,8 @@ class HeatingCurveOptimizer:
             "title": tr_opts.get(f"{base}.title", ""),
             "sections": sections,
             "fields": [{**f, "label": label(f)} for f in FIELDS],
-            "values": {f["key"]: self.cfg.get(f["key"], EMPTY.get(f["key"])) for f in FIELDS},
+            "values": {f["key"]: "" if f["key"] in SECRETS else self.cfg.get(f["key"], EMPTY.get(f["key"])) for f in FIELDS},
+            "secret_set": {key: bool(self.cfg.get(key)) for key in SECRETS},
             "choices": {
                 "weekday": [{"value": str(i), "label": d} for i, d in enumerate(weekdays)],
                 "programs": sorted(set(climate.attributes.get("vicare_programs", [])) if climate else set()
@@ -856,6 +863,8 @@ class HeatingCurveOptimizer:
         }
 
     async def async_save_settings(self, values: dict) -> None:
+        # champ secret laissé vide dans le panneau = inchangé (le panneau ne reçoit jamais sa valeur)
+        values = {k: v for k, v in values.items() if not (k in SECRETS and not str(v or "").strip())}
         options = {**self.entry.options, **validate(values)}
         self.hass.config_entries.async_update_entry(self.entry, options=options)
 
@@ -992,6 +1001,7 @@ class HeatingCurveOptimizer:
                 "elec_price": float(self.cfg.get("elec_price", 0.25)),
             },
             "electric": self._electric_heaters(),
+            "linky": self._linky_snapshot(),
             "report": {
                 "enabled": bool(self.cfg.get(CONF_WEEKLY_REPORT)),
                 "weekday": int(self.cfg[CONF_REPORT_WEEKDAY]),
@@ -1152,6 +1162,47 @@ class HeatingCurveOptimizer:
                 self.hass.config_entries.async_update_entry(vicare, pref_disable_polling=False)
                 self.hass.config_entries.async_schedule_reload(vicare.entry_id)
             self._save()
+
+    # ---------------------------------------------------- compteur Linky (Conso API)
+
+    _linky: LinkyImporter | None = None
+
+    def _linky_snapshot(self) -> dict | None:
+        if self._linky is None:
+            return None
+        state = self.data.get("linky") or {}
+        return {
+            "statistic_id": self._linky.statistic_id,
+            "prm_end": (self._linky.prm or "")[-4:],
+            "status": state.get("status"),
+            "last_day": state.get("last_day"),
+            "at": state.get("at"),
+        }
+
+    async def _async_linky_update(self, _now=None) -> None:
+        if self._linky is None:
+            return
+        previous = (self.data.get("linky") or {}).get("status")
+        try:
+            result = await self._linky.async_update()
+        except LinkyError as err:
+            self.data["linky"] = {**(self.data.get("linky") or {}), "status": str(err), "at": time.time()}
+            self._save()
+            if err.status in (401, 403) and previous != str(err):
+                await self._async_notify(
+                    "Compteur Linky",
+                    "Conso API refuse le jeton (expiré ou révoqué) : renouvelle-le sur conso.boris.sh, puis colle-le "
+                    "dans l'onglet Réglages du panneau.",
+                    suffix="linky",
+                )
+            return
+        self.data["linky"] = {
+            "status": "ok",
+            "last_day": result.get("last_day") or (self.data.get("linky") or {}).get("last_day"),
+            "imported": result.get("imported", 0),
+            "at": time.time(),
+        }
+        self._save()
 
     # ---------------------------------------------------- chauffage électrique d'appoint
 

@@ -114,6 +114,8 @@ def _selector(field: dict, programs: list[str]):
         return selector.EntitySelector(selector.EntitySelectorConfig(domain=field["domain"], multiple=True))
     if kind == "entity":
         return _entity(field["domain"], field.get("device_class"))
+    if kind == "secret":
+        return selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
     return selector.TextSelector()
 
 
