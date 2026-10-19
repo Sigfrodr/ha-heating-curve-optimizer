@@ -154,6 +154,8 @@ class HeatingCurveOptimizer:
     async def async_start(self) -> None:
         if stored := await self._store.async_load():
             self.data.update(stored)
+        if (regime := self.data.get("regime")) and len(regime) == 3:
+            regime[1] = str(regime[1]).removesuffix("EnergySaving")  # format v0.7.3, sans relancer la stabilisation
         if self.data.get("heating_filter") != HEATING_FILTER_VERSION:
             # Mesures collectées avec un filtre plus ancien : chaudière à l'arrêt (temps doux), ou
             # pompe allumée pour l'eau chaude seule (la pompe interne sert aussi au ballon)
@@ -271,9 +273,11 @@ class HeatingCurveOptimizer:
         outside = _float(outside_state.state) if outside_state else None
 
         now = time.time()
-        # Régime mémorisé : un redémarrage de HA ou un rechargement ne relance pas la stabilisation
-        regime = [state.state, program, target]
-        if regime != self.data.get("regime"):
+        # Régime mémorisé : un redémarrage de HA ou un rechargement ne relance pas la stabilisation.
+        # « comfort » et « comfortEnergySaving » alternent selon la demande de chaleur, à consigne égale :
+        # même régime. Un programme momentanément absent (rechargement de ViCare) ne compte pas.
+        regime = [state.state, program.removesuffix("EnergySaving"), target]
+        if program and target is not None and regime != self.data.get("regime"):
             self.data["regime"], self.data["regime_since"] = regime, now
             self._save()
         regime_since = float(self.data.get("regime_since") or now)

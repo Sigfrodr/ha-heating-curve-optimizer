@@ -119,3 +119,23 @@ async def test_old_samples_purged_once_on_upgrade(hass: HomeAssistant, vicare):
     optimizer = entry.runtime_data
     assert optimizer.data["heating_filter"] == 2
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_energy_saving_variant_keeps_regime(hass: HomeAssistant, vicare):
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    optimizer = entry.runtime_data
+    await optimizer._async_sample()
+    since = optimizer.data["regime_since"]
+    attrs = dict(hass.states.get("climate.vicare_heating").attributes)
+    # la chaudière chauffe : « comfortEnergySaving » devient « comfort », même consigne
+    hass.states.async_set("climate.vicare_heating", "auto", {**attrs, "active_vicare_program": "comfort"})
+    await optimizer._async_sample()
+    # rechargement de ViCare : programme momentanément absent
+    hass.states.async_set("climate.vicare_heating", "auto", {**attrs, "active_vicare_program": None})
+    await optimizer._async_sample()
+    assert optimizer.data["regime_since"] == since
+    # vrai changement : passage en réduit
+    hass.states.async_set("climate.vicare_heating", "auto", {**attrs, "active_vicare_program": "reduced", "temperature": 17})
+    await optimizer._async_sample()
+    assert optimizer.data["regime_since"] > since
+    await hass.config_entries.async_unload(entry.entry_id)
