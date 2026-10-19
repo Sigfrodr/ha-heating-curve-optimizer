@@ -616,13 +616,18 @@ class HeatingCurveOptimizer:
         from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
         climate_id = self.cfg[CONF_CLIMATE]
+        numbers = {
+            base: entity
+            for base in ("comfort", "normal")
+            if (entity := self._device_entity("number", f"{base}_temperature"))
+        }
         start = dt_util.utcnow() - timedelta(days=days)
         states = await get_instance(self.hass).async_add_executor_job(
             lambda: history.get_significant_states(
                 self.hass,
                 start,
                 None,
-                [climate_id],
+                [climate_id, *numbers.values()],
                 include_start_time_state=True,
                 significant_changes_only=False,
                 minimal_response=False,
@@ -638,12 +643,18 @@ class HeatingCurveOptimizer:
             for st in states.get(climate_id, [])
             if hasattr(st, "attributes")
         ]
-        targets = {
-            base: value
-            for base in ("comfort", "normal")
-            if (value := self._entity_float(self._device_entity("number", f"{base}_temperature")))
-            is not None
-        }
+        # historique des consignes : une relance passée se juge à la consigne de l'époque
+        targets = {}
+        for base, entity in numbers.items():
+            timeline = [
+                (st.last_updated.timestamp(), value)
+                for st in states.get(entity, [])
+                if (value := _float(getattr(st, "state", None))) is not None
+            ]
+            if timeline:
+                targets[base] = timeline
+            elif (value := self._entity_float(entity)) is not None:
+                targets[base] = value
         recoveries = find_recoveries(points, targets)
         return {
             "days": days,

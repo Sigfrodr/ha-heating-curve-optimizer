@@ -92,3 +92,13 @@ def test_recovery_advice():
     slow = find_recoveries(_night(drop=3, recover_minutes=180), {"comfort": 19.0})
     assert "Relance longue" in recovery_advice(slow)
     assert "Aucune relance" in recovery_advice([])
+
+
+def test_recovery_uses_setpoint_of_the_time():
+    from analysis import find_recoveries  # noqa: PLC0415
+
+    h = 3600
+    points = [(0, "reduced", 17.0), (6 * h, "comfortEnergySaving", 17.5), (7 * h, "comfortEnergySaving", 19.0)]
+    # consigne confort 19 °C ce jour-là, passée à 21 °C le lendemain : la relance est réussie
+    rec = find_recoveries(points, {"comfort": [(0, 19.0), (30 * h, 21.0)]})
+    assert rec[0].target == 19.0 and rec[0].minutes == 60

@@ -120,9 +120,21 @@ class Recovery:
     night_drop: float  # baisse de température pendant le réduit (K)
 
 
+def _target_at(spec: float | list[tuple[float, float]], t: float) -> float | None:
+    """Consigne valable à l'instant t (valeur fixe, ou historique [(t, valeur)] trié)."""
+    if isinstance(spec, (int, float)):
+        return float(spec)
+    value = None
+    for ts, v in spec:
+        if ts > t:
+            break
+        value = v
+    return value if value is not None else (spec[0][1] if spec else None)
+
+
 def find_recoveries(
     points: list[tuple[float, str, float | None]],
-    targets: dict[str, float],
+    targets: dict[str, float | list[tuple[float, float]]],
     tolerance: float = 0.3,
     max_minutes: float = 240,
 ) -> list[Recovery]:
@@ -141,7 +153,9 @@ def find_recoveries(
         t0, _, room0 = points[i]
         if room0 is None:
             continue
-        target = targets[prog]
+        target = _target_at(targets[prog], t0)  # consigne de l'époque, pas l'actuelle
+        if target is None:
+            continue
         start_night = reduced_since if reduced_since is not None else i
         night = [p[2] for p in points[start_night:i] if p[2] is not None]
         drop = (night[0] - min(night)) if night else 0.0
