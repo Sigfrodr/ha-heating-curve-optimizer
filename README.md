@@ -99,6 +99,8 @@ Le prix du kWh de gaz et la conversion m³ → kWh (facture) se règlent dans le
 
 - `sensor.…_prix_du_gaz` (EUR/m³) : à choisir comme **entité de prix** des sources gaz du tableau Énergie
   (sources = consommations de gaz ViCare du jour) ;
+- **Chauffage électrique d'appoint** (radiateurs Versatile Thermostat, ex. sèche-serviettes) : kWh et € sur 7 et 30 jours,
+  humidité de la pièce et douches détectées, dans l'onglet Économies (prix de l'électricité dans les Réglages) ;
 - `sensor.…_cout_du_gaz_chauffage_aujourd_hui` et `…_eau_chaude_aujourd_hui` (EUR, remis à zéro chaque jour).
 
 ## Panneau « Courbe de chauffe »

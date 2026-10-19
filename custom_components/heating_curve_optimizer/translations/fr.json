@@ -59,7 +59,8 @@
               "weekly_report": "Envoyer un bilan chaque semaine",
               "report_weekday": "Jour du bilan",
               "report_time": "Heure du bilan",
-              "gas_meter": "Compteur de gaz (Gazpar…), prioritaire sur les relevés ViCare"
+              "gas_meter": "Compteur de gaz (Gazpar…), prioritaire sur les relevés ViCare",
+              "elec_price": "Prix de l'électricité"
             }
           },
           "billing": {

@@ -10,7 +10,7 @@ from datetime import timedelta
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -978,7 +978,9 @@ class HeatingCurveOptimizer:
             "costs": {
                 "gas_price": float(self.cfg[CONF_GAS_PRICE]),
                 "kwh_per_m3": float(self.cfg[CONF_KWH_PER_M3]),
+                "elec_price": float(self.cfg.get("elec_price", 0.25)),
             },
+            "electric": self._electric_heaters(),
             "report": {
                 "enabled": bool(self.cfg.get(CONF_WEEKLY_REPORT)),
                 "weekday": int(self.cfg[CONF_REPORT_WEEKDAY]),
@@ -1139,6 +1141,34 @@ class HeatingCurveOptimizer:
                 self.hass.config_entries.async_update_entry(vicare, pref_disable_polling=False)
                 self.hass.config_entries.async_schedule_reload(vicare.entry_id)
             self._save()
+
+    # ---------------------------------------------------- chauffage électrique d'appoint
+
+    def _electric_heaters(self) -> list[dict]:
+        """Radiateurs électriques pilotés par Versatile Thermostat, avec leur compteur d'énergie et
+        le capteur d'humidité de leur pièce (salle de bains : sèche-serviettes)."""
+        ents, devs = er.async_get(self.hass), dr.async_get(self.hass)
+
+        def area(entry) -> str | None:
+            if entry.area_id:
+                return entry.area_id
+            device = devs.async_get(entry.device_id) if entry.device_id else None
+            return device.area_id if device else None
+
+        def kind(entry) -> str | None:
+            return entry.device_class or entry.original_device_class
+
+        sensors = [e for e in ents.entities.values() if e.domain == "sensor" and not e.disabled_by]
+        out = []
+        for e in ents.entities.values():
+            if e.domain != "climate" or e.platform != "versatile_thermostat" or e.disabled_by:
+                continue
+            energy = next((x.entity_id for x in sensors if e.device_id and x.device_id == e.device_id
+                           and kind(x) == "energy"), None)
+            room = area(e)
+            humidity = next((x.entity_id for x in sensors if room and kind(x) == "humidity" and area(x) == room), None)
+            out.append({"climate": e.entity_id, "energy": energy, "humidity": humidity})
+        return out
 
     # ---------------------------------------------------- planning de la chaudière
 

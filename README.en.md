@@ -97,6 +97,8 @@ Set the gas price per kWh and the m³ → kWh conversion (from your bill) in the
 
 - `sensor.…_gas_price` (EUR/m³): pick it as the **price entity** of the gas sources in the Energy dashboard
   (sources = ViCare daily gas consumption sensors);
+- **Electric backup heating** (Versatile Thermostat heaters, e.g. towel rail): kWh and € over 7 and 30 days, room
+  humidity and detected showers, in the Savings tab (electricity price in the Settings);
 - `sensor.…_heating_gas_cost_today` and `…_hot_water_gas_cost_today` (EUR, reset daily).
 
 ## "Heating curve" panel

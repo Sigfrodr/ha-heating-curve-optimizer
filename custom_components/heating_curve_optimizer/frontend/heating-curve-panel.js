@@ -335,6 +335,22 @@ const EN = {
   "Planning hebdomadaire": "Weekly schedule",
   "Planning de la chaudière (ViCare)": "Boiler schedule (ViCare)",
   "Plannings des pièces (Scheduler)": "Room schedules (Scheduler)",
+  "Chauffage électrique d'appoint": "Electric backup heating",
+  "Consommation estimée par Versatile Thermostat (puissance × temps de chauffe), au prix de l'électricité des Réglages.":
+    "Consumption estimated by Versatile Thermostat (power × heating time), at the electricity price from the Settings.",
+  "kWh sur 7 j": "kWh over 7 d",
+  "kWh sur 30 j": "kWh over 30 d",
+  "humidité actuelle": "current humidity",
+  "humidité moyenne (7 j)": "average humidity (7 d)",
+  "douches détectées (7 j)": "showers detected (7 d)",
+  "{v} kWh": "{v} kWh",
+  "Pas de consommation électrique sur la période : l'eau de la chaudière suffit.":
+    "No electricity used over the period: the boiler's water is enough.",
+  "électrique": "electric",
+  "conditions": "conditions",
+  "Le gaz coûte bien moins cher que l'électricité : l'électrique ne devrait servir qu'en appoint (douches, séchage, chaudière en réduit).":
+    "Gas is much cheaper than electricity: the electric element should only top up (showers, drying, boiler reduced).",
+  "Une douche est comptée quand l'humidité dépasse 88 %.": "A shower is counted when humidity goes above 88 %.",
   "Consigne de chaque tête thermostatique au fil de la journée, appliquée par l'intégration Scheduler. Une pièce ne peut chauffer que si la chaudière chauffe aussi.":
     "Setpoint of each radiator valve through the day, applied by the Scheduler integration. A room can only heat while the boiler heats too.",
   "Aucun planning Scheduler ne pilote les pièces suivies.": "No Scheduler schedule drives the tracked rooms.",
@@ -358,6 +374,8 @@ const EN = {
     "One slot per line: the setpoint applies from its start time until the next slot starts (the last one runs until midnight).",
   "Les plannings avec conditions ou plusieurs actions restent modifiables dans Scheduler uniquement.":
     "Schedules with conditions or several actions can only be edited in Scheduler.",
+  "Les conditions d'un planning (vacances…) sont conservées si elles sont les mêmes sur toutes ses plages ; sinon, ou avec plusieurs actions, il reste modifiable dans Scheduler uniquement.":
+    "A schedule's conditions (holidays…) are kept when they are the same on all its slots; otherwise, or with several actions, it can only be edited in Scheduler.",
   "Le planning ci-dessus peut être envoyé à la chaudière : il remplace celui de l'appli ViCare. Hors plages, la chaudière est en réduit.":
     "The schedule above can be sent to the boiler: it replaces the one in the ViCare app. Outside the slots, the boiler runs reduced.",
   "Palier normal avant le confort": "Normal step before comfort",
@@ -968,6 +986,7 @@ class HeatingCurvePanel extends HTMLElement {
       if (new Set(starts).size !== starts.length) { this._toast(t("Deux plages commencent à la même heure.")); return; }
       const timeslots = ed.slots.map((s, i) => ({
         start: s.start, stop: i + 1 < ed.slots.length ? ed.slots[i + 1].start : "00:00",
+        ...(it.conditions.length ? { conditions: it.conditions, condition_type: it.conditionType } : {}),
         actions: [{ service: "climate.set_temperature", entity_id: it.room,
           service_data: { ...(it.hvac ? { hvac_mode: it.hvac } : {}), temperature: s.temp } }],
       }));
@@ -1321,8 +1340,10 @@ class HeatingCurvePanel extends HTMLElement {
     const e = this._data.entities;
     const now = Date.now();
     const iso = (ms) => new Date(ms).toISOString();
-    const daily = [this._data.gas_source?.entity || e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours].filter(Boolean);
-    const hourly = [e.supply, e.modulation, e.gas_dhw_day].filter(Boolean);
+    const elec = this._data.electric || [];
+    const daily = [this._data.gas_source?.entity || e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours,
+      ...elec.map((x) => x.energy)].filter(Boolean);
+    const hourly = [e.supply, e.modulation, e.gas_dhw_day, ...elec.map((x) => x.humidity)].filter(Boolean);
     const startDay = new Date(now - 60 * DAY);
     startDay.setHours(0, 0, 0, 0);
     Promise.all([
@@ -1332,7 +1353,7 @@ class HeatingCurvePanel extends HTMLElement {
       }),
       this._hass.callWS({
         type: "recorder/statistics_during_period", start_time: iso(now - 7 * DAY), end_time: iso(now),
-        statistic_ids: hourly, period: "hour", types: ["mean", "change"],
+        statistic_ids: hourly, period: "hour", types: ["mean", "change", "max"],
       }),
     ])
       .then(([day, hour]) => {
@@ -1480,7 +1501,42 @@ class HeatingCurvePanel extends HTMLElement {
         "Relevés ViCare corrigés de {p} % d'après le compteur Gazpar ({n} mois comparés). La prévision de facture utilise directement les relevés du compteur.",
         { p: fmt((this._data.calibration.ratio - 1) * 100, 0, true), n: this._data.calibration.months })}</div></div></div>` : ""}
       ${this._billCard()}
+      ${this._electricCard(pal)}
       ${this._recoveryCard()}`;
+  }
+
+  _electricCard(pal) {
+    const heaters = (this._data.electric || []).filter((x) => x.energy);
+    if (!heaters.length || !this._stats || this._stats.error) return "";
+    const price = this._data.costs.elec_price;
+    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const blocks = heaters.map((hx) => {
+      const days = this._dailySeries(hx.energy, "change").slice(-30).map((r) => ({ t: r.t, v: Math.max(0, r.v) }));
+      const sum = (list) => list.reduce((a, x) => a + x.v, 0);
+      const k7 = sum(days.slice(-7)), k30 = sum(days);
+      const hum = (hx.humidity && this._stats.hour?.[hx.humidity]) || [];
+      const humNow = num(this._state(hx.humidity)?.state);
+      const humMean = hum.length ? hum.reduce((a, r) => a + (r.mean ?? 0), 0) / hum.length : null;
+      let showers = 0;
+      hum.forEach((r, i) => { if ((r.max ?? 0) > 88 && !((hum[i - 1]?.max ?? 0) > 88)) showers += 1; });
+      return `<h3 style="margin:12px 0 4px">${esc(name(hx.climate))}</h3>
+        <div class="kpis">
+          <div class="kpi"><div class="v">${fmt(k7, 1)} <small>${t("≈ {v} €", { v: fmt(k7 * price, 2) })}</small></div><div class="l">${t("kWh sur 7 j")}</div></div>
+          <div class="kpi"><div class="v">${fmt(k30, 1)} <small>${t("≈ {v} €", { v: fmt(k30 * price, 2) })}</small></div><div class="l">${t("kWh sur 30 j")}</div></div>
+          ${hx.humidity ? `<div class="kpi"><div class="v">${fmt(humNow, 0)} %</div><div class="l">${t("humidité actuelle")}</div></div>
+          <div class="kpi"><div class="v">${fmt(humMean, 0)} %</div><div class="l">${t("humidité moyenne (7 j)")}</div></div>
+          <div class="kpi"><div class="v">${showers}</div><div class="l">${t("douches détectées (7 j)")}</div></div>` : ""}
+        </div>
+        ${k30 > 0 ? this._columnChart(`elec-${hx.climate}`, days, (x) => x.v, pal.s3, {
+          fmtY: (v) => fmt(v, 1),
+          tip: (x) => `<b>${dayLabel(x.t)}</b><div>${t("{v} kWh", { v: fmt(x.v, 2) })} · ${t("≈ {v} €", { v: fmt(x.v * price, 2) })}</div>`,
+        }) : `<p class="note">${t("Pas de consommation électrique sur la période : l'eau de la chaudière suffit.")}</p>`}`;
+    }).join("");
+    return `<div class="card"><h2>${t("Chauffage électrique d'appoint")}</h2>
+      <p class="sub">${t("Consommation estimée par Versatile Thermostat (puissance × temps de chauffe), au prix de l'électricité des Réglages.")}</p>
+      ${blocks}
+      ${info(t("Le gaz coûte bien moins cher que l'électricité : l'électrique ne devrait servir qu'en appoint (douches, séchage, chaudière en réduit)."),
+        t("Une douche est comptée quand l'humidité dépasse 88 %."))}</div>`;
   }
 
   _recoveryCard() {
@@ -1756,16 +1812,20 @@ class HeatingCurvePanel extends HTMLElement {
   _ensureRoomSchedules() {
     if (this._rsched || this._rschedLoading) return;
     this._rschedLoading = true;
-    const rooms = new Set(this._data.rooms || []);
+    const electric = new Set((this._data.electric || []).map((x) => x.climate));
+    const rooms = new Set([...(this._data.rooms || []), ...electric]);
+    const condKey = (s) => JSON.stringify([s.conditions || [], s.condition_type || null]);
     this._hass.callWS({ type: "scheduler" })
       .then((list) => {
         const items = list.filter((x) => x.timeslots.length && x.timeslots.every((s) =>
           (s.actions || []).length === 1 && s.actions[0].service === "climate.set_temperature"
-          && rooms.has(s.actions[0].entity_id) && !(s.conditions || []).length
+          && rooms.has(s.actions[0].entity_id) && condKey(s) === condKey(x.timeslots[0])
           && s.actions[0].service_data?.temperature != null));
         this._rsched = { items: items.map((x) => ({
           id: x.schedule_id, entity: x.entity_id, name: x.name, enabled: x.enabled, weekdays: x.weekdays,
           room: x.timeslots[0].actions[0].entity_id,
+          electric: electric.has(x.timeslots[0].actions[0].entity_id),
+          conditions: x.timeslots[0].conditions || [], conditionType: x.timeslots[0].condition_type || null,
           hvac: x.timeslots[0].actions[0].service_data.hvac_mode,
           slots: x.timeslots.map((s) => ({ start: String(s.start).slice(0, 5), temp: +s.actions[0].service_data.temperature })),
         })) };
@@ -1805,7 +1865,7 @@ class HeatingCurvePanel extends HTMLElement {
     };
     const name = (id) => this._state(id)?.attributes.friendly_name || id;
     const out = [];
-    for (const it of items.filter((x) => x.enabled)) {
+    for (const it of items.filter((x) => x.enabled && !x.electric)) {
       const days = this._scheduleDays(it.weekdays);
       it.slots.forEach((s, i) => {
         if (s.temp < reduced + 1.5) return;
@@ -1858,6 +1918,8 @@ class HeatingCurvePanel extends HTMLElement {
       return `<div class="rs-item">
         <div class="rs-head"><b>${esc(name(it.room))}</b> <span class="chip">${esc(this._weekdaysLabel(it.weekdays))}</span>
           ${it.enabled ? "" : `<span class="chip">${t("désactivé")}</span>`}
+          ${it.electric ? `<span class="chip">${t("électrique")}</span>` : ""}
+          ${it.conditions.length ? `<span class="chip">${t("conditions")}</span>` : ""}
           ${edit?.id === it.id ? "" : `<button class="btn" style="padding:2px 10px;margin-left:auto" data-action="rs-edit" data-id="${esc(it.id)}">${t("Modifier")}</button>`}</div>
         ${bar(slots)}${editor}</div>`;
     }).join("");
@@ -1870,7 +1932,7 @@ class HeatingCurvePanel extends HTMLElement {
     return `${head}${coherence}
       <div class="rs-hours">${Array.from({ length: 9 }, (_, i) => `<span>${String(i * 3).padStart(2, "0")}h</span>`).join("")}</div>
       ${rows}
-      ${info(t("Les plannings avec conditions ou plusieurs actions restent modifiables dans Scheduler uniquement."))}</div>`;
+      ${info(t("Les conditions d'un planning (vacances…) sont conservées si elles sont les mêmes sur toutes ses plages ; sinon, ou avec plusieurs actions, il reste modifiable dans Scheduler uniquement."))}</div>`;
   }
 
   _bindRoomSchedules() {

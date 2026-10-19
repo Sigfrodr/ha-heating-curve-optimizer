@@ -59,7 +59,8 @@
               "weekly_report": "Send a weekly report",
               "report_weekday": "Report day",
               "report_time": "Report time",
-              "gas_meter": "Gas meter (Gazpar…), takes precedence over ViCare readings"
+              "gas_meter": "Gas meter (Gazpar…), takes precedence over ViCare readings",
+              "elec_price": "Electricity price"
             }
           },
           "billing": {

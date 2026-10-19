@@ -53,7 +53,7 @@ async def test_options_flow_flattens_sections(hass: HomeAssistant, vicare):
                       "vicare_refresh_minutes": 0},
             "billing": {"monthly_payment": 116.71, "payments_count": 11, "fixed_annual_cost": 350,
                         "reference_annual_kwh": 9235, "billing_start": "2026-04-11"},
-            "costs_report": {"gas_price": 0.11, "kwh_per_m3": 11.0, "weekly_report": True,
+            "costs_report": {"gas_price": 0.11, "kwh_per_m3": 11.0, "elec_price": 0.25, "weekly_report": True,
                              "report_weekday": "0", "report_time": "08:00:00"},
             "dhw": {"legionella_weekday": "6", "legionella_time": "14:00:00",
                     "legionella_temp": 60, "legionella_minutes": 90},
