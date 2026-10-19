@@ -1349,7 +1349,7 @@ class HeatingCurvePanel extends HTMLElement {
     Promise.all([
       this._hass.callWS({
         type: "recorder/statistics_during_period", start_time: iso(startDay.getTime()), end_time: iso(now),
-        statistic_ids: daily, period: "day", types: ["change", "mean"],
+        statistic_ids: daily, period: "day", types: ["change", "mean"], units: { energy: "kWh" },
       }),
       this._hass.callWS({
         type: "recorder/statistics_during_period", start_time: iso(now - 7 * DAY), end_time: iso(now),
