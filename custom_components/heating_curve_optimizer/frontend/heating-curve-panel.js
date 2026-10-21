@@ -383,6 +383,12 @@ const EN = {
   "Pas de consommation électrique sur la période : l'eau de la chaudière suffit.":
     "No electricity used over the period: the boiler's water is enough.",
   "électrique": "electric",
+  "électrique · fil pilote": "electric · pilot wire",
+  "Mode": "Mode",
+  "Confort −1": "Comfort −1",
+  "Confort −2": "Comfort −2",
+  "Hors-gel": "Frost protection",
+  "Arrêt": "Off",
   "conditions": "conditions",
   "Le gaz coûte bien moins cher que l'électricité : l'électrique ne devrait servir qu'en appoint (douches, séchage, chaudière en réduit).":
     "Gas is much cheaper than electricity: the electric element should only top up (showers, drying, boiler reduced).",
@@ -544,6 +550,10 @@ const PROGRAMS = {
   eco: "Éco", holiday: "Vacances", holidayathome: "Vacances à la maison", fixed: "Fixe",
 };
 const programLabel = (p) => (p ? t(PROGRAMS[String(p).toLowerCase()] || p) : "—");
+// modes du fil pilote (Zigbee2MQTT) et température indicative pour la couleur des plannings
+const PILOT_MODES = { comfort: "Confort", "comfort_-1": "Confort −1", "comfort_-2": "Confort −2", eco: "Éco", frost_protection: "Hors-gel", off: "Arrêt" };
+const PILOT_MODE_TEMPS = { comfort: 21, "comfort_-1": 20, "comfort_-2": 19, eco: 17.5, frost_protection: 8, off: 5 };
+const pilotModeLabel = (m) => t(PILOT_MODES[m] || m);
 // Explication repliable : une phrase visible, le détail sur demande
 const info = (...paragraphs) => `<details class="info"><summary>${t("En savoir plus")}</summary>${paragraphs.map((x) => `<p>${x}</p>`).join("")}</details>`;
 const toMin = (hhmm) => { const [h, m] = String(hhmm).split(":"); return +h * 60 + +m; };
@@ -1043,7 +1053,7 @@ class HeatingCurvePanel extends HTMLElement {
       const slots = this._rsEdit.slots;
       const last = slots[slots.length - 1];
       const start = Math.min(1410, Math.round((toMin(last.start) + (1440 - toMin(last.start)) / 2) / 30) * 30);
-      if (start > toMin(last.start)) slots.push({ start: fromMin(start), temp: last.temp });
+      if (start > toMin(last.start)) slots.push({ ...last, start: fromMin(start) });
       this._rsEdit.dirty = true;
       this._render();
     } else if (a === "rs-save") {
@@ -1054,8 +1064,10 @@ class HeatingCurvePanel extends HTMLElement {
       const timeslots = ed.slots.map((s, i) => ({
         start: s.start, stop: i + 1 < ed.slots.length ? ed.slots[i + 1].start : "00:00",
         ...(it.conditions.length ? { conditions: it.conditions, condition_type: it.conditionType } : {}),
-        actions: [{ service: "climate.set_temperature", entity_id: it.room,
-          service_data: { ...(it.hvac ? { hvac_mode: it.hvac } : {}), temperature: s.temp } }],
+        actions: [it.modes
+          ? { service: "select.select_option", entity_id: it.room, service_data: { option: s.mode } }
+          : { service: "climate.set_temperature", entity_id: it.room,
+            service_data: { ...(it.hvac ? { hvac_mode: it.hvac } : {}), temperature: s.temp } }],
       }));
       try {
         await this._hass.callService("scheduler", "edit", { entity_id: it.entity, weekdays: it.weekdays, timeslots });
@@ -1666,7 +1678,7 @@ class HeatingCurvePanel extends HTMLElement {
       const humMean = hum.length ? hum.reduce((a, r) => a + (r.mean ?? 0), 0) / hum.length : null;
       let showers = 0;
       hum.forEach((r, i) => { if ((r.max ?? 0) > 88 && !((hum[i - 1]?.max ?? 0) > 88)) showers += 1; });
-      return `<h3 style="margin:12px 0 4px">${esc(name(hx.climate))}</h3>
+      return `<h3 style="margin:12px 0 4px">${esc(hx.name || name(hx.entity))}</h3>
         <div class="kpis">
           <div class="kpi"><div class="v">${fmt(k7, 1)} <small>${t("≈ {v} €", { v: fmt(k7 * price, 2) })}</small></div><div class="l">${t("kWh sur 7 j")}</div></div>
           <div class="kpi"><div class="v">${fmt(k30, 1)} <small>${t("≈ {v} €", { v: fmt(k30 * price, 2) })}</small></div><div class="l">${t("kWh sur 30 j")}</div></div>
@@ -1674,7 +1686,7 @@ class HeatingCurvePanel extends HTMLElement {
           <div class="kpi"><div class="v">${fmt(humMean, 0)} %</div><div class="l">${t("humidité moyenne (7 j)")}</div></div>
           <div class="kpi"><div class="v">${showers}</div><div class="l">${t("douches détectées (7 j)")}</div></div>` : ""}
         </div>
-        ${k30 > 0 ? this._columnChart(`elec-${hx.climate}`, days, (x) => x.v, pal.s3, {
+        ${k30 > 0 ? this._columnChart(`elec-${hx.entity}`, days, (x) => x.v, pal.s3, {
           fmtY: (v) => fmt(v, 1),
           tip: (x) => `<b>${dayLabel(x.t)}</b><div>${t("{v} kWh", { v: fmt(x.v, 2) })} · ${t("≈ {v} €", { v: fmt(x.v * price, 2) })}</div>`,
         }) : `<p class="note">${t("Pas de consommation électrique sur la période : l'eau de la chaudière suffit.")}</p>`}`;
@@ -2018,23 +2030,31 @@ class HeatingCurvePanel extends HTMLElement {
   _ensureRoomSchedules() {
     if (this._rsched || this._rschedLoading) return;
     this._rschedLoading = true;
-    const electric = new Set((this._data.electric || []).map((x) => x.climate));
+    const electric = new Set((this._data.electric || []).map((x) => x.entity));
+    // module fil pilote : le planning choisit un mode (confort, arrêt…) au lieu d'une consigne
+    const pilots = new Map((this._data.electric || []).filter((x) => x.pilot_modes).map((x) => [x.entity, x.pilot_modes]));
     const rooms = new Set([...(this._data.rooms || []), ...electric]);
     const condKey = (s) => JSON.stringify([s.conditions || [], s.condition_type || null]);
+    const valid = (a) => (pilots.has(a.entity_id)
+      ? a.service === "select.select_option" && pilots.get(a.entity_id).includes(a.service_data?.option)
+      : a.service === "climate.set_temperature" && a.service_data?.temperature != null);
     this._hass.callWS({ type: "scheduler" })
       .then((list) => {
         const items = list.filter((x) => x.timeslots.length && x.timeslots.every((s) =>
-          (s.actions || []).length === 1 && s.actions[0].service === "climate.set_temperature"
-          && rooms.has(s.actions[0].entity_id) && condKey(s) === condKey(x.timeslots[0])
-          && s.actions[0].service_data?.temperature != null));
-        this._rsched = { items: items.map((x) => ({
-          id: x.schedule_id, entity: x.entity_id, name: x.name, enabled: x.enabled, weekdays: x.weekdays,
-          room: x.timeslots[0].actions[0].entity_id,
-          electric: electric.has(x.timeslots[0].actions[0].entity_id),
-          conditions: x.timeslots[0].conditions || [], conditionType: x.timeslots[0].condition_type || null,
-          hvac: x.timeslots[0].actions[0].service_data.hvac_mode,
-          slots: x.timeslots.map((s) => ({ start: String(s.start).slice(0, 5), temp: +s.actions[0].service_data.temperature })),
-        })) };
+          (s.actions || []).length === 1 && rooms.has(s.actions[0].entity_id) && valid(s.actions[0])
+          && s.actions[0].entity_id === x.timeslots[0].actions[0].entity_id && condKey(s) === condKey(x.timeslots[0])));
+        this._rsched = { items: items.map((x) => {
+          const room = x.timeslots[0].actions[0].entity_id;
+          const modes = pilots.get(room) || null;
+          return {
+            id: x.schedule_id, entity: x.entity_id, name: x.name, enabled: x.enabled, weekdays: x.weekdays,
+            room, modes, electric: electric.has(room),
+            conditions: x.timeslots[0].conditions || [], conditionType: x.timeslots[0].condition_type || null,
+            hvac: x.timeslots[0].actions[0].service_data.hvac_mode,
+            slots: x.timeslots.map((s) => ({ start: String(s.start).slice(0, 5),
+              ...(modes ? { mode: s.actions[0].service_data.option } : { temp: +s.actions[0].service_data.temperature }) })),
+          };
+        }) };
       })
       .catch((err) => { this._rsched = { error: /unknown command/i.test(err?.message || "") ? "missing" : (err?.message || String(err)) }; })
       .finally(() => { this._rschedLoading = false; this._render(); });
@@ -2099,22 +2119,27 @@ class HeatingCurvePanel extends HTMLElement {
     if (r.error === "missing") return `${head}<div class="empty">${t("Intégration Scheduler absente : installe-la (HACS) pour gérer les plannings des pièces ici.")}</div></div>`;
     if (r.error) return `${head}<div class="empty err">${esc(r.error)}</div></div>`;
     if (!r.items.length) return `${head}<div class="empty">${t("Aucun planning Scheduler ne pilote les pièces suivies.")}</div></div>`;
-    const name = (id) => this._state(id)?.attributes.friendly_name || id;
+    const heaters = new Map((this._data.electric || []).map((x) => [x.entity, x.name]));
+    const name = (id) => heaters.get(id) || this._state(id)?.attributes.friendly_name || id;
     const color = (temp) => `hsl(${Math.round(clamp(220 - (temp - 16) * 36, 20, 220))} 70% 55%)`;
+    const slotColor = (s) => (s.mode != null ? color(PILOT_MODE_TEMPS[s.mode] ?? 16) : color(s.temp));
+    const slotLabel = (s, short) => (s.mode != null ? pilotModeLabel(s.mode) : short ? `${fmt(s.temp, 1)}°` : `${fmt(s.temp, 1)} °C`);
     const bar = (slots) => `<div class="rs-bar">${slots.map((s, i) => {
       const a = toMin(s.start), b = i + 1 < slots.length ? toMin(slots[i + 1].start) : 1440;
-      return `<div style="left:${(a / 1440) * 100}%;width:${((b - a) / 1440) * 100}%;background:${color(s.temp)}" title="${s.start}–${fromMin(b)} : ${fmt(s.temp, 1)} °C">${b - a >= 120 ? `${fmt(s.temp, 1)}°` : ""}</div>`;
+      return `<div style="left:${(a / 1440) * 100}%;width:${((b - a) / 1440) * 100}%;background:${slotColor(s)}" title="${s.start}–${fromMin(b)} : ${esc(slotLabel(s))}">${b - a >= 120 ? esc(slotLabel(s, true)) : ""}</div>`;
     }).join("")}</div>`;
     const edit = this._rsEdit;
     const rows = r.items.map((it) => {
       const slots = edit?.id === it.id ? edit.slots : it.slots;
       const editor = edit?.id === it.id ? `
         <div class="rs-edit"><p class="note">${t("Une plage par ligne : la consigne s'applique de son heure de début jusqu'au début de la suivante (la dernière va jusqu'à minuit).")}</p>
-        <table class="rooms"><thead><tr><th>${t("Début")}</th><th>${t("Consigne")}</th><th></th></tr></thead><tbody>
+        <table class="rooms"><thead><tr><th>${t("Début")}</th><th>${it.modes ? t("Mode") : t("Consigne")}</th><th></th></tr></thead><tbody>
         ${slots.map((s, i) => `<tr><td><input type="time" step="1800" data-rs-idx="${i}" value="${s.start}" ${i === 0 ? "disabled" : ""}></td>
-          <td><span class="box"><button data-action="rs-temp" data-idx="${i}" data-delta="-0.5" aria-label="${t("Diminuer")}">−</button>
+          <td>${it.modes
+            ? `<select data-rs-mode="${i}">${it.modes.map((m) => `<option value="${esc(m)}" ${m === s.mode ? "selected" : ""}>${esc(pilotModeLabel(m))}</option>`).join("")}</select>`
+            : `<span class="box"><button data-action="rs-temp" data-idx="${i}" data-delta="-0.5" aria-label="${t("Diminuer")}">−</button>
             <output>${fmt(s.temp, 1)} °C</output>
-            <button data-action="rs-temp" data-idx="${i}" data-delta="0.5" aria-label="${t("Augmenter")}">+</button></span></td>
+            <button data-action="rs-temp" data-idx="${i}" data-delta="0.5" aria-label="${t("Augmenter")}">+</button></span>`}</td>
           <td>${i ? `<button class="btn" style="padding:2px 8px" data-action="rs-del" data-idx="${i}" aria-label="${t("Supprimer la plage")}">×</button>` : ""}</td></tr>`).join("")}
         </tbody></table>
         <div class="actions" style="margin-top:8px">
@@ -2124,7 +2149,7 @@ class HeatingCurvePanel extends HTMLElement {
       return `<div class="rs-item">
         <div class="rs-head"><b>${esc(name(it.room))}</b> <span class="chip">${esc(this._weekdaysLabel(it.weekdays))}</span>
           ${it.enabled ? "" : `<span class="chip">${t("désactivé")}</span>`}
-          ${it.electric ? `<span class="chip">${t("électrique")}</span>` : ""}
+          ${it.electric ? `<span class="chip">${it.modes ? t("électrique · fil pilote") : t("électrique")}</span>` : ""}
           ${it.conditions.length ? `<span class="chip">${t("conditions")}</span>` : ""}
           ${edit?.id === it.id ? "" : `<button class="btn" style="padding:2px 10px;margin-left:auto" data-action="rs-edit" data-id="${esc(it.id)}">${t("Modifier")}</button>`}</div>
         ${bar(slots)}${editor}</div>`;
@@ -2147,6 +2172,14 @@ class HeatingCurvePanel extends HTMLElement {
         if (!this._rsEdit || !el.value) return;
         this._rsEdit.slots[+el.dataset.rsIdx].start = el.value.slice(0, 5);
         this._rsEdit.slots.sort((a, b) => toMin(a.start) - toMin(b.start));
+        this._rsEdit.dirty = true;
+        this._render();
+      });
+    });
+    this.shadowRoot.querySelectorAll("select[data-rs-mode]").forEach((el) => {
+      el.addEventListener("change", () => {
+        if (!this._rsEdit) return;
+        this._rsEdit.slots[+el.dataset.rsMode].mode = el.value;
         this._rsEdit.dirty = true;
         this._render();
       });

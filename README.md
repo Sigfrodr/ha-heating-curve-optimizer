@@ -68,7 +68,8 @@ facultatif avant le confort pour monter en deux temps. Il passe par la connexion
 
 **Plannings des pièces** : si l'intégration [Scheduler](https://github.com/nielsfaber/scheduler-component) pilote les têtes
 thermostatiques, leurs plannings s'affichent et se modifient dans l'onglet Planning, avec une alerte quand une pièce
-demande de la chaleur alors que la chaudière est en réduit.
+demande de la chaleur alors que la chaudière est en réduit. Un radiateur électrique à module fil pilote (sans
+thermostat dans HA : il régule lui-même) se planifie par modes (confort, éco, arrêt…).
 
 En **simulation**, le pilote calcule et affiche ses décisions sans rien écrire. En **actif**, les consignes
 d'origine (chaudière et pièces) sont mémorisées et remises au retour en simulation / désactivé.
@@ -105,7 +106,7 @@ Le prix du kWh de gaz et la conversion m³ → kWh (facture) se règlent dans le
   dans les Réglages, jamais renvoyé au navigateur), la consommation journalière du compteur est importée chaque matin dans
   les statistiques (`heating_curve_optimizer:linky_<PRM>`, jusqu'à 3 ans d'historique) : source « Linky – consommation »
   du tableau Énergie, et carte « Électricité de la maison » de l'onglet Économies ;
-- **Chauffage électrique d'appoint** (radiateurs Versatile Thermostat, ex. sèche-serviettes) : kWh et € sur 7 et 30 jours,
+- **Chauffage électrique d'appoint** (radiateurs Versatile Thermostat, ou module fil pilote seul, ex. sèche-serviettes) : kWh et € sur 7 et 30 jours,
   humidité de la pièce et douches détectées, dans l'onglet Économies (prix de l'électricité dans les Réglages) ;
 - `sensor.…_cout_du_gaz_chauffage_aujourd_hui` et `…_eau_chaude_aujourd_hui` (EUR, remis à zéro chaque jour).
 

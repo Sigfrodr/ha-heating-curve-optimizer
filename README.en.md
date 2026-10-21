@@ -67,7 +67,8 @@ It goes through the ViCare integration's connection.
 
 **Room schedules**: if the [Scheduler](https://github.com/nielsfaber/scheduler-component) integration drives the radiator
 valves, their schedules are shown and edited in the Schedule tab, with a warning when a room calls for heat while the
-boiler is reduced.
+boiler is reduced. An electric heater on a pilot-wire module (no thermostat in HA: it regulates itself) is scheduled
+by mode (comfort, eco, off…).
 
 In **dry run** the pilot computes and shows its decisions without writing anything. When **active**, the
 original setpoints (boiler and rooms) are saved and restored when switching back to dry run / off.
@@ -103,7 +104,7 @@ Set the gas price per kWh and the m³ → kWh conversion (from your bill) in the
   Settings, never sent back to the browser), the meter's daily consumption is imported every morning into statistics
   (`heating_curve_optimizer:linky_<PRM>`, up to 3 years of history): « Linky – consommation » source for the Energy
   dashboard, and « Household electricity » card in the Savings tab;
-- **Electric backup heating** (Versatile Thermostat heaters, e.g. towel rail): kWh and € over 7 and 30 days, room
+- **Electric backup heating** (Versatile Thermostat heaters, or a bare pilot-wire module, e.g. towel rail): kWh and € over 7 and 30 days, room
   humidity and detected showers, in the Savings tab (electricity price in the Settings);
 - `sensor.…_heating_gas_cost_today` and `…_hot_water_gas_cost_today` (EUR, reset daily).
 

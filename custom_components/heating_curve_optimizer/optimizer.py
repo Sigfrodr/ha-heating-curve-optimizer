@@ -1253,8 +1253,9 @@ class HeatingCurveOptimizer:
     # ---------------------------------------------------- chauffage électrique d'appoint
 
     def _electric_heaters(self) -> list[dict]:
-        """Radiateurs électriques pilotés par Versatile Thermostat, avec leur compteur d'énergie et
-        le capteur d'humidité de leur pièce (salle de bains : sèche-serviettes)."""
+        """Radiateurs électriques d'appoint, avec leur compteur d'énergie et le capteur d'humidité de
+        leur pièce (salle de bains : sèche-serviettes). Pilotés par Versatile Thermostat, ou directement
+        par un module fil pilote (le radiateur régule lui-même, HA choisit le mode : confort, arrêt…)."""
         ents, devs = er.async_get(self.hass), dr.async_get(self.hass)
 
         def area(entry) -> str | None:
@@ -1266,20 +1267,40 @@ class HeatingCurveOptimizer:
         def kind(entry) -> str | None:
             return entry.device_class or entry.original_device_class
 
-        sensors = [e for e in ents.entities.values() if e.domain == "sensor" and not e.disabled_by]
+        def pilot_modes(entry) -> list[str]:
+            state = self.hass.states.get(entry.entity_id)
+            modes = list((state.attributes.get("options") if state else None) or [])
+            return modes if {"comfort", "off"} <= set(modes) and {"eco", "frost_protection"} & set(modes) else []
+
+        def name(entry) -> str:
+            device = devs.async_get(entry.device_id) if entry.device_id else None
+            if device and (device.name_by_user or device.name):
+                return device.name_by_user or device.name
+            state = self.hass.states.get(entry.entity_id)
+            return (state.attributes.get("friendly_name") if state else None) or entry.entity_id
+
+        live = [e for e in ents.entities.values() if not e.disabled_by]
+        sensors = [e for e in live if e.domain == "sensor"]
+        thermostats = [e for e in live if e.domain == "climate" and e.platform == "versatile_thermostat"]
+        vt_rooms = {area(e) for e in thermostats}
+        # un module fil pilote déjà commandé par un Versatile Thermostat de la pièce n'est compté qu'une fois
+        pilots = [(e, modes) for e in live if e.domain == "select" and (modes := pilot_modes(e))
+                  and area(e) not in vt_rooms]
         out = []
-        for e in ents.entities.values():
-            if e.domain != "climate" or e.platform != "versatile_thermostat" or e.disabled_by:
-                continue
+        for e, modes in [(e, None) for e in thermostats] + pilots:
             room = area(e)
+            own = next((x.entity_id for x in sensors if e.device_id and x.device_id == e.device_id
+                        and kind(x) == "energy"), None)
             # compteur mesuré (prise, module fil pilote…) de la pièce de préférence à l'estimation du thermostat
-            measured = next((x.entity_id for x in sensors if room and kind(x) == "energy" and area(x) == room
-                             and x.platform != "versatile_thermostat" and x.device_id != e.device_id), None)
-            estimated = next((x.entity_id for x in sensors if e.device_id and x.device_id == e.device_id
-                              and kind(x) == "energy"), None)
-            energy = measured or estimated
+            measured = (own if modes else None) or next(
+                (x.entity_id for x in sensors if room and kind(x) == "energy" and area(x) == room
+                 and x.platform != "versatile_thermostat" and x.device_id != e.device_id), None)
             humidity = next((x.entity_id for x in sensors if room and kind(x) == "humidity" and area(x) == room), None)
-            out.append({"climate": e.entity_id, "energy": energy, "measured": bool(measured), "humidity": humidity})
+            heater = {"entity": e.entity_id, "name": name(e), "energy": measured or own,
+                      "measured": bool(measured), "humidity": humidity}
+            if modes:
+                heater["pilot_modes"] = modes
+            out.append(heater)
         return out
 
     # ---------------------------------------------------- planning de la chaudière
