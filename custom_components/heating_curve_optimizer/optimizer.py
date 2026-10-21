@@ -69,7 +69,7 @@ from .analysis import (
     find_recoveries,
     recovery_advice,
 )
-from .control import balance_rooms, gas_cost, thermal_balance, vicare_schedule, weekly_report
+from .control import balance_rooms, dhw_schedule, gas_cost, thermal_balance, vicare_schedule, weekly_report
 from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
 from .messages import translate
 from .linky import LinkyError, LinkyImporter
@@ -1294,8 +1294,9 @@ class HeatingCurveOptimizer:
         circuit = climate.unique_id.rsplit("-", 1)[-1] if climate and climate.unique_id else "0"
         return services, f"heating.circuits.{circuit if circuit.isdigit() else '0'}.heating.schedule"
 
-    async def _async_read_vicare_schedule(self) -> tuple[object, dict]:
-        services, prop = self._vicare_schedule_access()
+    async def _async_read_vicare_schedule(self, prop: str | None = None) -> tuple[object, dict]:
+        services, circuit_prop = self._vicare_schedule_access()
+        prop = prop or circuit_prop
 
         def read():
             for service in services:
@@ -1352,6 +1353,42 @@ class HeatingCurveOptimizer:
         self.data["vicare_preheat_minutes"] = int(preheat_minutes)
         self.register_write()
         return {**await self.async_vicare_schedule(), "current": new}
+
+    # ---------------------------------------------------- planning de l'eau chaude
+
+    DHW_SCHEDULE = "heating.dhw.schedule"
+
+    def _recently_written(self, prop: str) -> dict | None:
+        """Planning écrit il y a moins de 2 min : le cache PyViCare (60 s) renverrait encore l'ancien."""
+        written = (self.data.get("schedule_written") or {}).get(prop)
+        if written and time.time() - written["at"] < 120:
+            return written["entries"]
+        return None
+
+    async def async_dhw_schedule(self) -> dict:
+        _service, feature = await self._async_read_vicare_schedule(self.DHW_SCHEDULE)
+        c = self._schedule_constraints(feature)
+        current = ((feature.get("properties") or {}).get("entries") or {}).get("value") or {}
+        return {"current": self._recently_written(self.DHW_SCHEDULE) or current, "constraints": c}
+
+    async def async_set_dhw_schedule(self, periods: dict) -> dict:
+        """Écrit les plages d'eau chaude {jour: [[début, fin]]} (une écriture du budget ViCare)."""
+        if self.writes_24h >= self.write_budget:
+            raise RuntimeError(self.tr("Budget d'écritures ViCare atteint : réessaie plus tard"))
+        service, feature = await self._async_read_vicare_schedule(self.DHW_SCHEDULE)
+        c = self._schedule_constraints(feature)
+        if not c["writable"]:
+            raise RuntimeError(self.tr("La chaudière n'accepte pas l'écriture du planning"))
+        new = dhw_schedule(periods, c["max_entries"], c["resolution"], (c["modes"] or ["on"])[0])
+        try:
+            await self.hass.async_add_executor_job(
+                service.setProperty, self.DHW_SCHEDULE, "setSchedule", {"newSchedule": new}
+            )
+        except Exception as err:  # noqa: BLE001
+            raise RuntimeError(self.tr("ViCare a refusé le planning : {err}").format(err=err)) from err
+        self.data.setdefault("schedule_written", {})[self.DHW_SCHEDULE] = {"at": time.time(), "entries": new}
+        self.register_write()
+        return {"current": new, "constraints": c}
 
     async def _async_refresh_vicare(self, _now=None) -> None:
         vicare = self._vicare_entry()

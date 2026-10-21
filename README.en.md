@@ -63,6 +63,8 @@ write). The write budget can then go up to 30-40. Setting the option back to 0 h
 constraints (slots per day, 10-minute steps), with an optional "normal" step before comfort to warm up in two stages.
 It goes through the ViCare integration's connection.
 
+**Hot water**: the tank recharge slots (ViCare schedule) are shown and edited in the Schedule tab.
+
 **Room schedules**: if the [Scheduler](https://github.com/nielsfaber/scheduler-component) integration drives the radiator
 valves, their schedules are shown and edited in the Schedule tab, with a warning when a room calls for heat while the
 boiler is reduced.

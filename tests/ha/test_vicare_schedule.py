@@ -60,3 +60,27 @@ async def test_push_schedule_to_boiler(hass: HomeAssistant, vicare):
         await optimizer.async_push_vicare_schedule(90)
     assert len(service.written) == 1
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_dhw_schedule_roundtrip(hass: HomeAssistant, vicare):
+    service = FakeService()
+    service.getProperty = lambda prop: {
+        "properties": {"entries": {"value": {"mon": [{"start": "18:00", "end": "23:30", "mode": "on", "position": 0}]}}},
+        "commands": {"setSchedule": {"isExecutable": True, "params": {"newSchedule": {"constraints": {
+            "maxEntries": 2, "resolution": 10, "modes": ["on"], "defaultMode": "off"}}}}},
+    }
+    vicare_entry = hass.config_entries.async_entries("vicare")[0]
+    vicare_entry.runtime_data = SimpleNamespace(devices=[SimpleNamespace(api=SimpleNamespace(service=service))])
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    optimizer = entry.runtime_data
+    assert (await optimizer.async_dhw_schedule())["current"]["mon"][0]["end"] == "23:30"
+    week = {d: [["00:00", "00:30"], ["18:00", "24:00"]] for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
+    await optimizer.async_set_dhw_schedule(week)
+    prop, action, data = service.written[0]
+    assert (prop, action) == ("heating.dhw.schedule", "setSchedule")
+    assert data["newSchedule"]["sun"][1] == {"start": "18:00", "end": "24:00", "mode": "on", "position": 1}
+    # relu juste après l'envoi : le planning écrit, pas l'ancien encore en cache
+    assert (await optimizer.async_dhw_schedule())["current"]["mon"][1]["end"] == "24:00"
+    with pytest.raises(ValueError):
+        await optimizer.async_set_dhw_schedule({"mon": [["18:00", "19:00"], ["18:30", "20:00"]]})
+    await hass.config_entries.async_unload(entry.entry_id)

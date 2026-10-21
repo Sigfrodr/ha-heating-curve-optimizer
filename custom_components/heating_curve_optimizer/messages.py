@@ -98,6 +98,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "dans l'onglet Réglages du panneau.":
             "Conso API rejects the token (expired or revoked): renew it on conso.boris.sh, then paste it "
             "in the panel's Settings tab.",
+        "plages qui se chevauchent": "overlapping slots",
         "Planning de la chaudière indisponible (intégration ViCare non chargée ?)":
             "Boiler schedule unavailable (ViCare integration not loaded?)",
         "Budget d'écritures ViCare atteint : réessaie plus tard": "ViCare write budget reached: try again later",

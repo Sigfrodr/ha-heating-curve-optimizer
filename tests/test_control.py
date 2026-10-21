@@ -175,3 +175,18 @@ def test_thermal_balance_with_electric_gains():
     assert abs(tb.loss_w_per_k - 200) < 0.5 and tb.internal_gains_w is not None
     # sans l'électricité, ses apports variables font croire à une maison moins déperditive
     assert thermal_balance([(g, t) for g, t, _ in days], indoor=21).loss_w_per_k < 190
+
+
+def test_dhw_schedule_validation():
+    import pytest
+
+    from control import dhw_schedule  # noqa: PLC0415
+
+    out = dhw_schedule({"mon": [["18:00", "24:00"], ["00:00", "00:30"]]}, max_entries=2)
+    assert out["mon"] == [{"start": "00:00", "end": "00:30", "mode": "on", "position": 0},
+                          {"start": "18:00", "end": "24:00", "mode": "on", "position": 1}]
+    assert out["tue"] == []
+    for bad in ({"mon": [["18:00", "19:00"], ["18:30", "20:00"]]}, {"mon": [["18:05", "19:00"]]},
+                {"mon": [["20:00", "19:00"]]}, {"mon": [["01:00", "02:00"], ["03:00", "04:00"], ["05:00", "06:00"]]}):
+        with pytest.raises(ValueError):
+            dhw_schedule(bad, max_entries=2)

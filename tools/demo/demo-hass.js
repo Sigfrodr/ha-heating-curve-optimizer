@@ -158,6 +158,11 @@ window.demoHass = {
         return { current: week, constraints: { max_entries: 2, resolution: 10, modes: ["normal", "comfort"], writable: true },
           preheat_minutes: 90, proposals: { 0: week, 30: week, 60: week, 90: week, 120: week } };
       }
+      case "heating_curve_optimizer/dhw_schedule": {
+        const ev = (start) => [{ start: "00:00", end: "00:30", mode: "on", position: 0 }, { start, end: "24:00", mode: "on", position: 1 }];
+        return { current: { mon: ev("18:00"), tue: ev("18:00"), wed: ev("18:00"), thu: ev("18:00"), fri: ev("18:00"), sat: ev("11:00"), sun: ev("11:00") },
+          constraints: { max_entries: 2, resolution: 10, modes: ["on"], writable: true } };
+      }
       case "scheduler": {
         const slot = (entity, start, stop, temperature) => ({ start: `${start}:00`, stop: `${stop}:00`, conditions: [],
           actions: [{ service: "climate.set_temperature", entity_id: entity, service_data: { hvac_mode: "heat", temperature } }] });

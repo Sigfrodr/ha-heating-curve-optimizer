@@ -124,6 +124,25 @@ def vicare_schedule(
     return out
 
 
+def dhw_schedule(schedule: dict, max_entries: int = 2, resolution: int = 10, mode: str = "on") -> dict[str, list[dict]]:
+    """Plages d'eau chaude {jour: [[début, fin]]} → planning ViCare, en refusant ce que la chaudière n'accepte pas."""
+    out: dict[str, list[dict]] = {}
+    for day in VICARE_DAYS:
+        periods = sorted((to_minutes(s), to_minutes(e)) for s, e in schedule.get(day) or [])
+        if len(periods) > max_entries:
+            raise ValueError(f"{day} : {max_entries} plages au plus")
+        for i, (s, e) in enumerate(periods):
+            if not 0 <= s < e <= 1440:
+                raise ValueError(f"{day} : plage {fmt_minutes(s)}–{fmt_minutes(e)} invalide")
+            if s % resolution or e % resolution:
+                raise ValueError(f"{day} : horaires par pas de {resolution} min")
+            if i and s < periods[i - 1][1]:
+                raise ValueError(f"{day} : plages qui se chevauchent")
+        out[day] = [{"start": fmt_minutes(s), "end": fmt_minutes(e), "mode": mode, "position": i}
+                    for i, (s, e) in enumerate(periods)]
+    return out
+
+
 def in_comfort(schedule: dict, weekday: int, minute: int) -> bool:
     for start, end in schedule.get(weekday, schedule.get(str(weekday), [])):
         if to_minutes(start) <= minute < to_minutes(end):

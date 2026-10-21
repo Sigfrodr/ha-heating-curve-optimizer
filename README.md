@@ -64,6 +64,8 @@ de ViCare est coupée et l'optimiseur la rafraîchit lui-même (~290 appels par 
 (ViCare) »), en respectant ses contraintes (nombre de plages par jour, pas de 10 min), avec un palier « normal »
 facultatif avant le confort pour monter en deux temps. Il passe par la connexion de l'intégration ViCare.
 
+**Eau chaude** : les plages de recharge du ballon (planning ViCare) s'affichent et se modifient dans l'onglet Planning.
+
 **Plannings des pièces** : si l'intégration [Scheduler](https://github.com/nielsfaber/scheduler-component) pilote les têtes
 thermostatiques, leurs plannings s'affichent et se modifient dans l'onglet Planning, avec une alerte quand une pièce
 demande de la chaleur alors que la chaudière est en réduit.

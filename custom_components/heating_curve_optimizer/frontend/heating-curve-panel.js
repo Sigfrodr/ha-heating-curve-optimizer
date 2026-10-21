@@ -335,6 +335,15 @@ const EN = {
   "Planning hebdomadaire": "Weekly schedule",
   "Planning de la chaudière (ViCare)": "Boiler schedule (ViCare)",
   "Plannings des pièces (Scheduler)": "Room schedules (Scheduler)",
+  "Eau chaude (ViCare)": "Hot water (ViCare)",
+  "Plages pendant lesquelles la chaudière peut recharger le ballon. Hors plages, elle ne le recharge pas (sauf recharge ponctuelle demandée dans ViCare).":
+    "Slots during which the boiler may recharge the tank. Outside them it does not (except a one-time charge requested in ViCare).",
+  "Une plage ne peut pas passer minuit : pour aller jusqu'à 00:30, termine à 24:00 et ajoute 00:00–00:30 le lendemain.":
+    "A slot cannot cross midnight: to run until 00:30, end at 24:00 and add 00:00–00:30 on the next day.",
+  "aucune recharge": "no recharge",
+  "Envoyer le planning d'eau chaude à la chaudière ? (1 écriture ViCare)": "Send the hot water schedule to the boiler? (1 ViCare write)",
+  "Planning d'eau chaude envoyé": "Hot water schedule sent",
+  "Copier le lundi sur la semaine": "Copy Monday to weekdays",
   "Chauffage électrique d'appoint": "Electric backup heating",
   "Apports électriques": "Electrical gains",
   "Avec le compteur Linky, l'électricité consommée dans la maison (≈ 90 % finit en chaleur) est comptée comme apport : les déperditions ne sont plus faussées par les appareils.":
@@ -711,6 +720,9 @@ button.chip { border:0; font:inherit; font-size:12px; cursor:pointer; }
 .rs-bar { position:relative; height:24px; border-radius:6px; overflow:hidden; background:var(--secondary-background-color); }
 .rs-bar > div { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
   font-size:11px; color:rgba(0,0,0,.78); border-right:1px solid var(--card-background-color); box-sizing:border-box; }
+.dhw-slot { display:inline-flex; align-items:center; gap:4px; margin:2px 8px 2px 0; }
+.dhw-slot input { font:inherit; padding:3px 4px; border-radius:6px; border:1px solid var(--divider-color);
+  background:var(--card-background-color); color:var(--primary-text-color); }
 .rs-pre { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin-bottom:12px; }
 .rs-pre .seg button { white-space:nowrap; }
 .rs-edit { margin-top:8px; }
@@ -983,6 +995,34 @@ class HeatingCurvePanel extends HTMLElement {
         this._toast(t("Échec : {msg}", { msg: err?.message || err }));
       }
       this._render();
+    } else if (a === "dhw-add") {
+      const slots = this._dhwDraft[el.dataset.day];
+      const last = slots.length ? toMin(slots[slots.length - 1][1]) : 1080;
+      const start = Math.min(1380, Math.ceil(last / 10) * 10);
+      slots.push([fromMin(start), fromMin(Math.min(1440, start + 60))]);
+      this._dhwDirty = true;
+      this._render();
+    } else if (a === "dhw-del") {
+      this._dhwDraft[el.dataset.day].splice(+el.dataset.idx, 1);
+      this._dhwDirty = true;
+      this._render();
+    } else if (a === "dhw-copy") {
+      for (const k of ["tue", "wed", "thu", "fri"]) this._dhwDraft[k] = this._dhwDraft.mon.map((s) => [...s]);
+      this._dhwDirty = true;
+      this._render();
+    } else if (a === "dhw-reset") {
+      this._dhwDraft = null;
+      this._render();
+    } else if (a === "dhw-save") {
+      if (!await this._confirm(t("Envoyer le planning d'eau chaude à la chaudière ? (1 écriture ViCare)"))) return;
+      try {
+        this._dhw = await this._hass.callWS({ type: `${DOMAIN}/set_dhw_schedule`, schedule: this._dhwDraft });
+        this._dhwDraft = null;
+        this._toast(t("Planning d'eau chaude envoyé"));
+      } catch (err) {
+        this._toast(t("Échec : {msg}", { msg: err?.message || err }));
+      }
+      this._render();
     } else if (a === "rs-edit") {
       const it = this._rsched.items.find((x) => x.id === el.dataset.id);
       this._rsEdit = { id: it.id, slots: it.slots.map((s) => ({ ...s })), dirty: false };
@@ -1232,6 +1272,7 @@ class HeatingCurvePanel extends HTMLElement {
     this._bindSchedule();
     this._bindSettings();
     this._bindRoomSchedules();
+    this._bindDhw();
   }
 
   _body() {
@@ -1870,6 +1911,7 @@ class HeatingCurvePanel extends HTMLElement {
           <button class="btn" data-action="copy-monday">${t("Copier le lundi sur les jours ouvrés")}</button>
         </div></div>
       ${this._vicareScheduleCard()}
+      ${this._dhwScheduleCard()}
       ${this._roomSchedulesCard()}
       ${this._roomTargetsCard()}
       <div class="card"><h2>${t("Décisions des dernières 48 h")}</h2>${timeline}</div>`;
@@ -1917,6 +1959,62 @@ class HeatingCurvePanel extends HTMLElement {
   }
 
   // ---------------------------------------------------- plannings des pièces (Scheduler)
+  _ensureDhwSchedule() {
+    if (this._dhw || this._dhwLoading) return;
+    this._dhwLoading = true;
+    this._hass.callWS({ type: `${DOMAIN}/dhw_schedule` })
+      .then((r) => { this._dhw = r; this._dhwDraft = null; })
+      .catch((err) => { this._dhw = { error: err?.message || String(err) }; })
+      .finally(() => { this._dhwLoading = false; this._render(); });
+  }
+
+  _dhwScheduleCard() {
+    this._ensureDhwSchedule();
+    const v = this._dhw;
+    const head = `<div class="card"><h2>${t("Eau chaude (ViCare)")}</h2>
+      <p class="sub">${t("Plages pendant lesquelles la chaudière peut recharger le ballon. Hors plages, elle ne le recharge pas (sauf recharge ponctuelle demandée dans ViCare).")}</p>`;
+    if (!v) return `${head}<div class="empty">${t("Chargement…")}</div></div>`;
+    if (v.error) return `${head}<div class="empty err">${esc(v.error)}</div></div>`;
+    const keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const days = [t("Lun"), t("Mar"), t("Mer"), t("Jeu"), t("Ven"), t("Sam"), t("Dim")];
+    if (!this._dhwDraft) {
+      this._dhwDraft = Object.fromEntries(keys.map((k) => [k, [...(v.current[k] || [])]
+        .sort((a, b) => a.start.localeCompare(b.start)).map((e) => [e.start, e.end])]));
+      this._dhwDirty = false;
+    }
+    const max = v.constraints.max_entries;
+    const bar = (slots) => `<div class="rs-bar">${slots.map(([a, b]) =>
+      `<div style="left:${(toMin(a) / 1440) * 100}%;width:${((toMin(b) - toMin(a)) / 1440) * 100}%;background:var(--warning-color, #ff9800)" title="${a}–${b}"></div>`).join("")}</div>`;
+    const rows = keys.map((k, i) => {
+      const slots = this._dhwDraft[k];
+      return `<tr><td>${days[i]}</td><td style="min-width:160px">${bar(slots)}</td><td>
+        ${slots.map(([a, b], j) => `<span class="dhw-slot"><input type="time" step="600" data-dhw="${k}" data-idx="${j}" data-end="0" value="${a}">–<input type="time" step="600" data-dhw="${k}" data-idx="${j}" data-end="1" value="${b === "24:00" ? "23:59" : b}">
+          <button class="btn" style="padding:0 8px" data-action="dhw-del" data-day="${k}" data-idx="${j}" aria-label="${t("Supprimer la plage")}">×</button></span>`).join(" ")}
+        ${slots.length < max ? `<button class="btn" style="padding:0 8px" data-action="dhw-add" data-day="${k}">+</button>` : ""}
+        ${slots.length ? "" : `<span class="note">${t("aucune recharge")}</span>`}</td></tr>`;
+    }).join("");
+    return `${head}
+      <div class="table-wrap"><table class="rooms"><tbody>${rows}</tbody></table></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn primary" data-action="dhw-save" ${this._dhwDirty && v.constraints.writable ? "" : "disabled"}>${t("Envoyer à la chaudière")}</button>
+        <button class="btn" data-action="dhw-copy">${t("Copier le lundi sur la semaine")}</button>
+        <button class="btn" data-action="dhw-reset" ${this._dhwDirty ? "" : "disabled"}>${t("Annuler")}</button></div>
+      ${info(t("Une plage ne peut pas passer minuit : pour aller jusqu'à 00:30, termine à 24:00 et ajoute 00:00–00:30 le lendemain."))}</div>`;
+  }
+
+  _bindDhw() {
+    this.shadowRoot.querySelectorAll("input[data-dhw]").forEach((el) => {
+      el.addEventListener("change", () => {
+        if (!el.value || !this._dhwDraft) return;
+        // 23:59 dans le champ = fin de journée (24:00)
+        const value = el.dataset.end === "1" && el.value === "23:59" ? "24:00" : el.value.slice(0, 5);
+        this._dhwDraft[el.dataset.dhw][+el.dataset.idx][+el.dataset.end] = value;
+        this._dhwDirty = true;
+        this._render();
+      });
+    });
+  }
+
   _ensureRoomSchedules() {
     if (this._rsched || this._rschedLoading) return;
     this._rschedLoading = true;
