@@ -210,6 +210,11 @@ class HeatingCurveOptimizer:
             self._unsubs.append(async_call_later(self.hass, 90, self._async_linky_update))
             # Enedis publie la veille dans la matinée
             self._unsubs.append(async_track_time_change(self.hass, self._async_linky_update, hour=10, minute=30, second=0))
+            # nouvelles tentatives si Conso API a refusé (quota Enedis) ou si la veille n'était pas encore publiée
+            for hour in (14, 18):
+                self._unsubs.append(
+                    async_track_time_change(self.hass, self._async_linky_retry, hour=hour, minute=30, second=0)
+                )
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
@@ -1213,6 +1218,12 @@ class HeatingCurveOptimizer:
             dt_util.as_local(dt_util.utc_from_timestamp(_ts(r["start"]))).date(): r["change"]
             for r in stats.get(sid, []) if r.get("change") is not None
         }
+
+    async def _async_linky_retry(self, _now=None) -> None:
+        state = self.data.get("linky") or {}
+        yesterday = (dt_util.now().date() - timedelta(days=1)).isoformat()
+        if state.get("status") != "ok" or (state.get("last_day") or "") < yesterday:
+            await self._async_linky_update()
 
     async def _async_linky_update(self, _now=None) -> None:
         if self._linky is None:

@@ -87,3 +87,18 @@ async def test_rejected_token_is_reported(hass: HomeAssistant, aioclient_mock):
     with pytest.raises(LinkyError) as err:
         await importer.async_update()
     assert err.value.status == 401
+
+
+async def test_retry_only_when_needed(hass: HomeAssistant):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.heating_curve_optimizer.optimizer import HeatingCurveOptimizer
+
+    fake = MagicMock()
+    fake.data = {"linky": {"status": "ok", "last_day": (dt_util.now().date() - timedelta(days=1)).isoformat()}}
+    fake._async_linky_update = AsyncMock()
+    await HeatingCurveOptimizer._async_linky_retry(fake)
+    fake._async_linky_update.assert_not_awaited()  # à jour : pas d'appel
+    fake.data["linky"] = {"status": "Conso API : erreur 429", "last_day": "2026-10-18"}
+    await HeatingCurveOptimizer._async_linky_retry(fake)
+    fake._async_linky_update.assert_awaited_once()
