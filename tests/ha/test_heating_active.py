@@ -139,3 +139,70 @@ async def test_energy_saving_variant_keeps_regime(hass: HomeAssistant, vicare):
     await optimizer._async_sample()
     assert optimizer.data["regime_since"] > since
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_electric_held_while_gas_heats(hass: HomeAssistant, vicare):
+    """Fil pilote en confort : arrêté pendant que le chauffage gaz tourne, rétabli ensuite, sauf séchage."""
+    from homeassistant.helpers import area_registry as ar, device_registry as dr
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    _register(hass, PUMP, "circulation_pump", "off")
+    _register(hass, TANK, "dhw_storage_temperature", "45")
+    z2m = MockConfigEntry(domain="mqtt")
+    z2m.add_to_hass(hass)
+    area = ar.async_get(hass).async_create("Salle de bains")
+    module = dr.async_get(hass).async_get_or_create(config_entry_id=z2m.entry_id, identifiers={("mqtt", "legrand")})
+    dr.async_get(hass).async_update_device(module.id, area_id=area.id)
+    ents = er.async_get(hass)
+    select = ents.async_get_or_create("select", "mqtt", "pilot", suggested_object_id="sdb_pilot_wire_mode",
+                                      device_id=module.id).entity_id
+    hum = ents.async_get_or_create("sensor", "mqtt", "hum", suggested_object_id="sdb_humidity",
+                                   device_id=module.id, original_device_class="humidity").entity_id
+    modes = ["comfort", "eco", "frost_protection", "off", "comfort_-1", "comfort_-2"]
+    hass.states.async_set(select, "off", {"options": modes})
+    hass.states.async_set(hum, "60")
+
+    async def select_option(call):
+        hass.states.async_set(call.data["entity_id"][0] if isinstance(call.data["entity_id"], list)
+                              else call.data["entity_id"], call.data["option"], {"options": modes})
+
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    hass.services.async_register("select", "select_option", select_option)  # après le composant select de HA
+    optimizer = entry.runtime_data
+    optimizer.cfg["electric_gas_priority"] = True
+
+    # le planning demande le confort, la chaudière est à l'arrêt : confort
+    await hass.services.async_call("select", "select_option", {"entity_id": select, "option": "comfort"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(select).state == "comfort"
+
+    # le chauffage gaz tourne (pompe en marche, ballon stable) : arrêt, la demande reste le confort
+    hass.states.async_set(PUMP, "on")
+    await hass.async_block_till_done()
+    optimizer.data["pump_on_at"] = time.time() - 700
+    await optimizer._async_electric_priority()
+    assert hass.states.get(select).state == "off"
+    heater, = optimizer.snapshot()["electric"]
+    assert heater["demand"] == "comfort" and heater["held"]
+
+    # douche : l'humidité dépasse 80 %, le séchage électrique reprend malgré le gaz
+    hass.states.async_set(hum, "90")
+    await optimizer._async_electric_priority()
+    assert hass.states.get(select).state == "comfort"
+    hass.states.async_set(hum, "70")
+    await optimizer._async_electric_priority()
+    assert hass.states.get(select).state == "off"
+
+    # un arrêt demandé pendant la retenue est mémorisé, même sans changement d'état
+    await hass.services.async_call("select", "select_option", {"entity_id": select, "option": "off"}, blocking=True)
+    await hass.async_block_till_done()
+    hass.states.async_set(PUMP, "off")
+    await hass.async_block_till_done()
+    await optimizer._async_electric_priority()
+    assert hass.states.get(select).state == "off"
+
+    # nouvelle demande de confort, gaz arrêté : confort
+    await hass.services.async_call("select", "select_option", {"entity_id": select, "option": "comfort"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(select).state == "comfort"
+    await hass.config_entries.async_unload(entry.entry_id)

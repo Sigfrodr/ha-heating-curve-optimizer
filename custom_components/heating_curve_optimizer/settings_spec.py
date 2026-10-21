@@ -31,6 +31,7 @@ FIELDS: list[dict] = [
     _n("gas_price", "costs_report", 0.01, 1, 0.001, "€/kWh"),
     _n("kwh_per_m3", "costs_report", 8, 13, 0.01, "kWh/m³"),
     _n("elec_price", "costs_report", 0.01, 1, 0.001, "€/kWh"),
+    {"key": "electric_gas_priority", "section": "costs_report", "kind": "bool"},
     {"key": "linky_token", "section": "costs_report", "kind": "secret", "optional": True},
     {"key": "gas_meter", "section": "costs_report", "kind": "entity", "domain": "sensor", "optional": True},
     {"key": "weekly_report", "section": "costs_report", "kind": "bool"},

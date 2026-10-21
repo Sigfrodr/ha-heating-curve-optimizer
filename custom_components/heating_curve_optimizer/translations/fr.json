@@ -55,6 +55,7 @@
             "description": "Prix du kWh de gaz (facture, abonnement exclu) et pouvoir calorifique (kWh par m³, indiqué sur la facture, souvent 10,5 à 11,5). Compteur Linky : jeton obtenu sur conso.boris.sh après accord Enedis ; la consommation journalière est importée dans les statistiques (tableau Énergie).",
             "data": {
               "gas_price": "Prix du gaz",
+              "electric_gas_priority": "Radiateur électrique à fil pilote : arrêté pendant que le chauffage gaz tourne (sauf séchage après douche, humidité ≥ 80 %)",
               "kwh_per_m3": "Conversion m³ → kWh",
               "weekly_report": "Envoyer un bilan chaque semaine",
               "report_weekday": "Jour du bilan",

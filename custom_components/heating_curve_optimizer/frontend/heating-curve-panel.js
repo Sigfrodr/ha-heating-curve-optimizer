@@ -384,6 +384,13 @@ const EN = {
     "No electricity used over the period: the boiler's water is enough.",
   "électrique": "electric",
   "électrique · fil pilote": "electric · pilot wire",
+  "Fil pilote : {m}": "Pilot wire: {m}",
+  "≈ {k} kWh/an · {e} €/an": "≈ {k} kWh/yr · €{e}/yr",
+  "talon mesuré (heure la plus sobre de chaque jour, médiane sur {n} j)": "measured baseload (most frugal hour of each day, median over {n} d)",
+  "Talon mesuré par la courbe de charge Linky : ce qui tourne en permanence (réfrigérateur, congélateur, box, NAS, VMC, veilles, électronique de la chaudière). Chaque tranche de 10 W permanents coûte environ {v} € par an.":
+    "Baseload measured by the Linky load curve: what runs all the time (fridge, freezer, router, NAS, ventilation, standby, boiler electronics). Every 10 W running permanently costs about €{v} a year.",
+  "demandé : {m}, suspendu pendant que le chauffage gaz tourne (l'eau du circuit chauffe déjà le radiateur)":
+    "requested: {m}, held while gas heating runs (the heating water already warms the radiator)",
   "Mode": "Mode",
   "Confort −1": "Comfort −1",
   "Confort −2": "Comfort −2",
@@ -1619,9 +1626,18 @@ class HeatingCurvePanel extends HTMLElement {
     const sid = this._data.linky?.statistic_id;
     if (!sid || this._lkHist || this._lkHistLoading) return;
     this._lkHistLoading = true;
-    this._hass.callWS({ type: "recorder/statistics_during_period", start_time: new Date(Date.now() - 3 * 366 * DAY).toISOString(),
-      statistic_ids: [sid], period: "day", types: ["change"], units: { energy: "kWh" } })
-      .then((r) => { this._lkHist = (r[sid] || []).filter((x) => x.change != null).map((x) => ({ t: x.start, v: Math.max(0, x.change) })); })
+    const psid = this._data.linky?.power_statistic_id;
+    Promise.all([
+      this._hass.callWS({ type: "recorder/statistics_during_period", start_time: new Date(Date.now() - 3 * 366 * DAY).toISOString(),
+        statistic_ids: [sid], period: "day", types: ["change"], units: { energy: "kWh" } }),
+      // courbe de charge : plus faible puissance moyenne horaire de chaque jour (la nuit, en général)
+      psid ? this._hass.callWS({ type: "recorder/statistics_during_period", start_time: new Date(Date.now() - 31 * DAY).toISOString(),
+        statistic_ids: [psid], period: "day", types: ["min"] }) : Promise.resolve({}),
+    ])
+      .then(([r, p]) => {
+        this._lkHist = (r[sid] || []).filter((x) => x.change != null).map((x) => ({ t: x.start, v: Math.max(0, x.change) }));
+        this._lkNight = (p[psid] || []).filter((x) => x.min != null).map((x) => x.min);
+      })
       .catch((err) => { this._lkHist = { error: err?.message || String(err) }; })
       .finally(() => { this._lkHistLoading = false; this._render(); });
   }
@@ -1647,9 +1663,14 @@ class HeatingCurvePanel extends HTMLElement {
     const now = series[series.length - 1];
     const yearAgo = series.find((x) => Math.abs(x.m - (now.m - 365 * DAY)) < 20 * DAY);
     const monthName = (ms) => new Date(ms).toLocaleDateString(LOCALE, { month: "short", year: "2-digit" });
+    const night = this._lkNight || [];
+    const talon = night.length >= 5 ? [...night].sort((a, b) => a - b)[Math.floor(night.length / 2)] : null;
+    const price = this._data.costs.elec_price;
     return `<div class="card"><h2>${t("Journées les plus sobres")}</h2>
       <p class="sub">${t("Consommation des 10 % de jours les plus sobres de chaque mois : le minimum de la maison au quotidien.")}</p>
       <div class="kpis">
+        ${talon != null ? `<div class="kpi"><div class="v">${fmt(talon, 0)} W <small>(${t("≈ {k} kWh/an · {e} €/an", { k: fmt((talon * 8760) / 1000, 0), e: fmt((talon * 8760 * price) / 1000, 0) })})</small></div>
+          <div class="l">${t("talon mesuré (heure la plus sobre de chaque jour, médiane sur {n} j)", { n: night.length })}</div></div>` : ""}
         <div class="kpi"><div class="v">${fmt(now.v, 1)} kWh/j <small>(${t("≈ {w} W en moyenne", { w: fmt((now.v / 24) * 1000, 0) })})</small></div>
           <div class="l">${monthName(now.m)}</div></div>
         ${yearAgo ? `<div class="kpi"><div class="v">${fmt(now.v - yearAgo.v, 1, true)} kWh/j <small>(${fmt(((now.v - yearAgo.v) / yearAgo.v) * 100, 0, true)} %)</small></div>
@@ -1660,7 +1681,9 @@ class HeatingCurvePanel extends HTMLElement {
         label: (tt) => monthName(series[Math.round(tt / DAY)]?.m ?? 0),
         tip: (x) => `<b>${monthName(x.m)}</b><div>${fmt(x.v, 1)} kWh/j · ${t("≈ {w} W en moyenne", { w: fmt((x.v / 24) * 1000, 0) })}</div>`,
       })}
-      ${info(t("Ce chiffre comprend ce qui tourne en permanence (réfrigérateur, congélateur, box, NAS, VMC, veilles, électronique de la chaudière) mais aussi l'usage minimal d'une journée (cuisine, éclairage, ordinateurs). Le vrai talon, la nuit, se mesure avec la courbe de charge : à activer dans l'espace Enedis."),
+      ${info(talon != null
+        ? t("Talon mesuré par la courbe de charge Linky : ce qui tourne en permanence (réfrigérateur, congélateur, box, NAS, VMC, veilles, électronique de la chaudière). Chaque tranche de 10 W permanents coûte environ {v} € par an.", { v: fmt(87.6 * price, 0) })
+        : t("Ce chiffre comprend ce qui tourne en permanence (réfrigérateur, congélateur, box, NAS, VMC, veilles, électronique de la chaudière) mais aussi l'usage minimal d'une journée (cuisine, éclairage, ordinateurs). Le vrai talon, la nuit, se mesure avec la courbe de charge : à activer dans l'espace Enedis."),
         t("Une hausse d'une année sur l'autre signale un appareil en plus ou qui consomme davantage."))}</div>`;
   }
 
@@ -1678,7 +1701,11 @@ class HeatingCurvePanel extends HTMLElement {
       const humMean = hum.length ? hum.reduce((a, r) => a + (r.mean ?? 0), 0) / hum.length : null;
       let showers = 0;
       hum.forEach((r, i) => { if ((r.max ?? 0) > 88 && !((hum[i - 1]?.max ?? 0) > 88)) showers += 1; });
-      return `<h3 style="margin:12px 0 4px">${esc(hx.name || name(hx.entity))}</h3>
+      const mode = hx.pilot_modes ? this._state(hx.entity)?.state : null;
+      const pilotLine = hx.pilot_modes ? `<p class="note">${t("Fil pilote : {m}", { m: pilotModeLabel(mode) })}${hx.held
+        ? ` · ${t("demandé : {m}, suspendu pendant que le chauffage gaz tourne (l'eau du circuit chauffe déjà le radiateur)", { m: pilotModeLabel(hx.demand) })}`
+        : ""}</p>` : "";
+      return `<h3 style="margin:12px 0 4px">${esc(hx.name || name(hx.entity))}</h3>${pilotLine}
         <div class="kpis">
           <div class="kpi"><div class="v">${fmt(k7, 1)} <small>${t("≈ {v} €", { v: fmt(k7 * price, 2) })}</small></div><div class="l">${t("kWh sur 7 j")}</div></div>
           <div class="kpi"><div class="v">${fmt(k30, 1)} <small>${t("≈ {v} €", { v: fmt(k30 * price, 2) })}</small></div><div class="l">${t("kWh sur 30 j")}</div></div>

@@ -103,9 +103,13 @@ Set the gas price per kWh and the m³ → kWh conversion (from your bill) in the
 - **Linky meter**: with a [Conso API](https://conso.boris.sh) token (Enedis consent given on the site, token pasted in the
   Settings, never sent back to the browser), the meter's daily consumption is imported every morning into statistics
   (`heating_curve_optimizer:linky_<PRM>`, up to 3 years of history): « Linky – consommation » source for the Energy
-  dashboard, and « Household electricity » card in the Savings tab;
+  dashboard, with its cost (`…_cout`, « Linky – coût », at the Settings price), and « Household electricity » card in
+  the Savings tab. If the load curve is enabled in the Enedis account, the hourly mean power is imported too
+  (`…_puissance`, 4 weeks at first): the household baseload is then measured, not estimated;
 - **Electric backup heating** (Versatile Thermostat heaters, or a bare pilot-wire module, e.g. towel rail): kWh and € over 7 and 30 days, room
-  humidity and detected showers, in the Savings tab (electricity price in the Settings);
+  humidity and detected showers, in the Savings tab (electricity price in the Settings). « Gas priority » option: a
+  pilot-wire heater is switched off while gas heating runs (the heating water already warms it), then restored to the
+  mode requested by its schedule; drying after a shower (humidity ≥ 80 %) is not interrupted;
 - `sensor.…_heating_gas_cost_today` and `…_hot_water_gas_cost_today` (EUR, reset daily).
 
 ## "Heating curve" panel

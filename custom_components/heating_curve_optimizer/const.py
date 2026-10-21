@@ -93,6 +93,7 @@ DEFAULT_OPTIONS = {
     "write_budget": 8.0,
     "vicare_refresh_minutes": 0.0,
     "elec_price": 0.25,
+    "electric_gas_priority": False,
     "linky_token": "",
     "gas_meter": "",
     "billing_start": "",

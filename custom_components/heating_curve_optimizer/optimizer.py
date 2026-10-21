@@ -9,7 +9,8 @@ from datetime import timedelta
 
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.event import (
     async_call_later,
@@ -96,6 +97,9 @@ SHIFT_RETRY_SECONDS = 300
 HEATING_FILTER_VERSION = 2
 DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
 HEATING_RECENT_SECONDS = 3600
+# radiateur électrique à fil pilote : modes qui chauffent, mis en arrêt pendant que le chauffage gaz tourne
+ELECTRIC_HOLD_MODES = ("comfort", "comfort_-1", "comfort_-2", "eco")
+DRYING_HUMIDITY = 80.0  # au-dessus : séchage après douche, l'électrique garde la main
 HEATING_GAS_WINDOW = 3 * 3600  # ViCare ne met à jour ses compteurs de gaz que toutes les ~2 h  # une mesure ne compte que si le chauffage a tourné dans l'heure
 SHIFT_MAX_ATTEMPTS = 6
 
@@ -148,6 +152,8 @@ class HeatingCurveOptimizer:
         self._pending = None
         self._unsubs: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
+        self._own_contexts: list[str] = []
+        self._electric_held: dict[str, bool] = {}
 
     # ---------------------------------------------------------- cycle de vie
 
@@ -205,6 +211,8 @@ class HeatingCurveOptimizer:
         await self.pilot.async_start()
         self._unsubs.append(async_call_later(self.hass, 300, self.async_update_calibration))
         self._setup_vicare_refresh()
+        self._unsubs.append(self.hass.bus.async_listen(EVENT_CALL_SERVICE, self._on_pilot_call))
+        self._unsubs.append(async_track_time_interval(self.hass, self._async_electric_priority, timedelta(minutes=2)))
         if token := self.cfg.get("linky_token"):
             self._linky = LinkyImporter(self.hass, DOMAIN, token)
             self._unsubs.append(async_call_later(self.hass, 90, self._async_linky_update))
@@ -1192,6 +1200,9 @@ class HeatingCurveOptimizer:
         state = self.data.get("linky") or {}
         return {
             "statistic_id": self._linky.statistic_id,
+            "power_statistic_id": self._linky.power_statistic_id if state.get("curve") == "ok" else None,
+            "cost_statistic_id": self._linky.cost_statistic_id,
+            "curve": state.get("curve"),
             "prm_end": (self._linky.prm or "")[-4:],
             "status": state.get("status"),
             "last_day": state.get("last_day"),
@@ -1242,12 +1253,27 @@ class HeatingCurveOptimizer:
                     suffix="linky",
                 )
             return
+        state = self.data.get("linky") or {}
         self.data["linky"] = {
+            **state,
             "status": "ok",
-            "last_day": result.get("last_day") or (self.data.get("linky") or {}).get("last_day"),
+            "last_day": result.get("last_day") or state.get("last_day"),
             "imported": result.get("imported", 0),
             "at": time.time(),
         }
+        try:
+            await self._linky.async_update_cost(float(self.cfg.get("elec_price") or 0))
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Coût Linky non calculé : %s", err)
+        # courbe de charge : une fois par jour, après la consommation journalière (même quota Enedis)
+        if state.get("curve_day") != dt_util.now().date().isoformat():
+            try:
+                await self._linky.async_update_curve()
+                self.data["linky"]["curve"] = "ok"
+                self.data["linky"]["curve_day"] = dt_util.now().date().isoformat()
+            except LinkyError as err:
+                self.data["linky"]["curve"] = str(err)
+                _LOGGER.info("Courbe de charge Linky indisponible : %s", err)
         self._save()
 
     # ---------------------------------------------------- chauffage électrique d'appoint
@@ -1300,8 +1326,80 @@ class HeatingCurveOptimizer:
                       "measured": bool(measured), "humidity": humidity}
             if modes:
                 heater["pilot_modes"] = modes
+                heater["demand"] = (self.data.get("electric_demand") or {}).get(e.entity_id)
+                heater["held"] = self._electric_held.get(e.entity_id, False)
             out.append(heater)
         return out
+
+    # ------------------------------------- radiateur électrique : priorité au chauffage gaz
+
+    def _heating_now(self) -> bool:
+        """Le chauffage gaz tourne en ce moment (pompe en marche pour le chauffage, pas pour le ballon)."""
+        pump = self._pump_entity()
+        st = self.hass.states.get(pump) if pump else None
+        return st is not None and st.state == "on" and self._heating_recently_active(time.time())
+
+    @callback
+    def _on_pilot_call(self, event) -> None:
+        """Mode demandé au fil pilote (planning, séchage, tableau de bord) : mémorisé comme la demande,
+        même s'il ne change pas l'état (arrêt demandé pendant que la priorité au gaz le tient à l'arrêt)."""
+        data = event.data
+        if data.get("domain") != "select" or data.get("service") != "select_option":
+            return
+        if event.context.id in self._own_contexts:
+            return
+        service_data = data.get("service_data") or {}
+        targets = service_data.get("entity_id") or []
+        targets = [targets] if isinstance(targets, str) else list(targets)
+        pilots = {h["entity"] for h in self._electric_heaters() if h.get("pilot_modes")}
+        option = service_data.get("option")
+        hit = [t for t in targets if t in pilots]
+        if not hit or not option:
+            return
+        demands = self.data.setdefault("electric_demand", {})
+        for entity in hit:
+            demands[entity] = option
+        self._save()
+        self.hass.async_create_task(self._async_electric_priority())
+
+    def _electric_target(self, heater: dict, demand: str, gas: bool) -> str:
+        if not gas or demand not in ELECTRIC_HOLD_MODES:
+            return demand
+        humidity = self._entity_float(heater.get("humidity")) if heater.get("humidity") else None
+        if humidity is not None and humidity >= DRYING_HUMIDITY:
+            return demand  # séchage après douche : le coup de chaud électrique est voulu
+        return "off"
+
+    async def _async_electric_priority(self, _now=None) -> None:
+        """Pendant que le chauffage gaz tourne, l'eau du circuit chauffe déjà le sèche-serviettes :
+        le mode demandé au fil pilote est remplacé par l'arrêt, puis rétabli quand le gaz s'arrête."""
+        enabled = bool(self.cfg.get("electric_gas_priority"))
+        gas = enabled and self._heating_now()
+        demands = self.data.get("electric_demand") or {}
+        held: dict[str, bool] = {}
+        for heater in self._electric_heaters():
+            entity = heater["entity"]
+            if not heater.get("pilot_modes"):
+                continue
+            st = self.hass.states.get(entity)
+            if st is None or st.state not in heater["pilot_modes"]:
+                continue
+            demand = demands.get(entity, st.state)
+            target = self._electric_target(heater, demand, gas)
+            held[entity] = target != demand
+            if st.state == target:
+                continue
+            context = Context()
+            self._own_contexts = [*self._own_contexts[-19:], context.id]
+            try:
+                await self.hass.services.async_call(
+                    "select", "select_option", {"entity_id": entity, "option": target}, blocking=True, context=context
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Fil pilote %s → %s impossible : %s", entity, target, err)
+        if held != self._electric_held:
+            self._electric_held = held
+            self._set_status(self.status)
 
     # ---------------------------------------------------- planning de la chaudière
 

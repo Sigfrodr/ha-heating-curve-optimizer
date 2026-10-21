@@ -105,9 +105,14 @@ Le prix du kWh de gaz et la conversion m³ → kWh (facture) se règlent dans le
 - **Compteur Linky** : avec un jeton [Conso API](https://conso.boris.sh) (accord Enedis donné sur le site, jeton collé
   dans les Réglages, jamais renvoyé au navigateur), la consommation journalière du compteur est importée chaque matin dans
   les statistiques (`heating_curve_optimizer:linky_<PRM>`, jusqu'à 3 ans d'historique) : source « Linky – consommation »
-  du tableau Énergie, et carte « Électricité de la maison » de l'onglet Économies ;
+  du tableau Énergie, avec son coût (`…_cout`, « Linky – coût », au prix des Réglages), et carte « Électricité de la
+  maison » de l'onglet Économies. Si la courbe de charge est activée dans l'espace Enedis, la puissance moyenne horaire
+  est importée aussi (`…_puissance`, 4 semaines au départ) : le talon de la maison est alors mesuré, pas estimé ;
 - **Chauffage électrique d'appoint** (radiateurs Versatile Thermostat, ou module fil pilote seul, ex. sèche-serviettes) : kWh et € sur 7 et 30 jours,
-  humidité de la pièce et douches détectées, dans l'onglet Économies (prix de l'électricité dans les Réglages) ;
+  humidité de la pièce et douches détectées, dans l'onglet Économies (prix de l'électricité dans les Réglages).
+  Option « priorité au gaz » : un radiateur à fil pilote est mis à l'arrêt pendant que le chauffage gaz tourne (l'eau du
+  circuit le chauffe déjà), puis remis dans le mode demandé par le planning ; le séchage après douche (humidité ≥ 80 %)
+  n'est pas interrompu ;
 - `sensor.…_cout_du_gaz_chauffage_aujourd_hui` et `…_eau_chaude_aujourd_hui` (EUR, remis à zéro chaque jour).
 
 ## Panneau « Courbe de chauffe »
