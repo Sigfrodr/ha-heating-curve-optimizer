@@ -66,7 +66,9 @@ from .analysis import (
     RoomReading,
     burner_stats,
     effective_error,
+    drop_frozen_samples,
     evaluate_alerts,
+    room_frozen,
     find_recoveries,
     recovery_advice,
 )
@@ -169,6 +171,11 @@ class HeatingCurveOptimizer:
             self.data.pop("heating_active_at", None)
             self.data["heating_filter"] = HEATING_FILTER_VERSION
             self._save()
+        if not self.data.get("frozen_cleanup"):
+            # Vitotrol figé le 22/10/2026 : mesures collectées avant l'existence de la détection
+            self.data["samples"] = drop_frozen_samples(self.data["samples"])
+            self.data["frozen_cleanup"] = True
+            self._save()
         if sources := self._heating_activity_entities():
             self._unsubs.append(
                 async_track_state_change_event(self.hass, sources, self._on_heating_activity)
@@ -268,6 +275,8 @@ class HeatingCurveOptimizer:
 
     async def _async_sample(self, _now=None) -> None:
         state = self.hass.states.get(self.cfg[CONF_CLIMATE])
+        room = self._room_temperature(state)
+        self._watch_room(room)
         await self._async_monitor(state)
         if state is None or state.state == "unavailable":
             self._set_status("climate indisponible")
@@ -277,11 +286,6 @@ class HeatingCurveOptimizer:
         target = _float(attrs.get("temperature"))
         if target is None:
             target = self._program_temperature(program)
-        if room_entity := self.cfg.get(CONF_ROOM):
-            room_state = self.hass.states.get(room_entity)
-            room = _float(room_state.state) if room_state else None
-        else:
-            room = _float(attrs.get("room_temperature"))
         outside_state = self.hass.states.get(self.cfg[CONF_OUTSIDE])
         outside = _float(outside_state.state) if outside_state else None
 
@@ -304,6 +308,8 @@ class HeatingCurveOptimizer:
             status = f"programme {program} non surveillé"
         elif target is None or outside is None or (room is None and multi is None):
             status = "mesure manquante"
+        elif self.data.get("room_frozen"):
+            status = "sonde d'ambiance figée (mesure ignorée)"
         elif outside >= float(self.cfg[CONF_HEATING_LIMIT]):
             status = f"T° ext. ≥ {float(self.cfg[CONF_HEATING_LIMIT]):g} °C"
         elif now - regime_since < settle:
@@ -325,6 +331,42 @@ class HeatingCurveOptimizer:
             self._save()
             status = "collecte"
         self._set_status(status)
+
+    def _room_temperature(self, climate_state) -> float | None:
+        if room_entity := self.cfg.get(CONF_ROOM):
+            room_state = self.hass.states.get(room_entity)
+            return _float(room_state.state) if room_state else None
+        if climate_state is None:
+            return None
+        return _float(climate_state.attributes.get("room_temperature"))
+
+    def _watch_room(self, room: float | None) -> None:
+        """Sonde d'ambiance figée : même valeur pendant des heures alors que le brûleur démarre.
+
+        La chaudière croit alors la pièce sous la consigne et chauffe sans fin ; les mesures collectées
+        depuis le dernier changement de valeur sont fausses et retirées.
+        """
+        if room is None:
+            return
+        now = time.time()
+        starts = self._entity_float(self._device_entity("sensor", "burner_starts"))
+        watch = self.data.get("room_watch")
+        if not watch or watch["value"] != room:
+            self.data["room_watch"] = {"value": room, "since": now, "starts": starts}
+            if self.data.get("room_frozen"):
+                self.data["room_frozen"] = None
+                self._save()
+            return
+        if watch.get("starts") is None:
+            watch["starts"] = starts
+        hours = (now - watch["since"]) / 3600
+        burner = starts - watch["starts"] if starts is not None and watch["starts"] is not None else None
+        if not room_frozen(hours, burner):
+            return
+        if not self.data.get("room_frozen"):
+            self.data["samples"] = [s for s in self.data["samples"] if s["t"] < watch["since"]]
+        self.data["room_frozen"] = [room, hours, int(burner)]
+        self._save()
 
     def _heating_gas_entity(self) -> str | None:
         return self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
@@ -469,6 +511,7 @@ class HeatingCurveOptimizer:
                 frost_protection=bool(frost and frost.state == "on"),
                 burner=self.burner,
                 short_cycle_minutes=float(self.cfg[CONF_SHORT_CYCLE_MINUTES]),
+                room_frozen=tuple(self.data["room_frozen"]) if self.data.get("room_frozen") else None,
             )
         )
         alerts.update(self.data["daily_alerts"])

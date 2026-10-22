@@ -8,10 +8,12 @@ from analysis import (  # noqa: E402
     BurnerStats,
     RoomReading,
     burner_stats,
+    drop_frozen_samples,
     effective_error,
     evaluate_alerts,
     find_recoveries,
     recovery_advice,
+    room_frozen,
 )
 
 
@@ -102,3 +104,30 @@ def test_recovery_uses_setpoint_of_the_time():
     # consigne confort 19 °C ce jour-là, passée à 21 °C le lendemain : la relance est réussie
     rec = find_recoveries(points, {"comfort": [(0, 19.0), (30 * h, 21.0)]})
     assert rec[0].target == 19.0 and rec[0].minutes == 60
+
+
+def test_room_frozen_needs_time_and_burner_starts():
+    # 22/10/2026 : Vitotrol figé à 20,8 °C, le brûleur a démarré toutes les heures
+    assert room_frozen(4.0, 4)
+    # nuit ou mi-saison : valeur stable près de 5 h sans démarrage du brûleur
+    assert not room_frozen(4.8, 0)
+    # en chauffe, une valeur reste stable un peu plus de 3 h au plus
+    assert not room_frozen(3.2, 4)
+    assert not room_frozen(10, None)
+
+
+def test_room_frozen_alert():
+    alerts = evaluate_alerts(AlertInputs(
+        pressure=1.4, min_pressure=0.9, climate_unavailable_minutes=0, frost_protection=False,
+        burner=None, short_cycle_minutes=10, room_frozen=(20.8, 4.2, 4),
+    ))
+    assert alerts["room_frozen"].startswith("Température ambiante figée à 20.8 °C depuis 4 h")
+
+
+def test_drop_frozen_samples():
+    ok = [{"t": i * 600, "room": 20.5 + 0.1 * (i % 3)} for i in range(6)]
+    frozen = [{"t": 3600 + i * 600, "room": 20.8} for i in range(30)]  # 4 h 50 à la même valeur
+    after = [{"t": 30000, "room": 23.2}, {"t": 30600, "room": 22.8}]
+    assert drop_frozen_samples(ok + frozen + after) == ok + after
+    short = [{"t": i * 600, "room": 21.0} for i in range(15)]  # 2 h 20 stable : normal
+    assert drop_frozen_samples(short) == short

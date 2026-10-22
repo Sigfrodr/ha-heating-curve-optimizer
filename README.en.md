@@ -79,7 +79,8 @@ Safeguards: at least 5 min between writes, at most 48 boiler writes per day.
 ## Monitoring and diagnostics
 
 - **Alerts** (`binary_sensor` + notification): low pressure, unreachable boiler, frost protection, short
-  cycling, **overconsumption** (yesterday's gas well above the thermal-model forecast), **slow pressure loss**
+  cycling, **frozen room sensor** (same value for 4 h while the burner keeps starting: samples skipped and
+  removed), **overconsumption** (yesterday's gas well above the thermal-model forecast), **slow pressure loss**
   (4-week trend: small leak, expansion vessel), **annual service** due ("Service done" button).
 - **Thermal balance**: house heat loss in W/K per heating season, and **heating limit** (outdoor temperature
   above which free gains are enough), applicable in one click.

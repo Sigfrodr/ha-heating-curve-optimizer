@@ -80,7 +80,8 @@ Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus
 ## Surveillance et diagnostic
 
 - **Alertes** (entité `binary_sensor` + notification) : pression basse, chaudière injoignable, antigel,
-  cycles courts, **surconsommation** (gaz de la veille nettement au-dessus de la prévision du bilan thermique),
+  cycles courts, **sonde d'ambiance figée** (même valeur depuis 4 h alors que le brûleur démarre : mesures ignorées
+  et retirées), **surconsommation** (gaz de la veille nettement au-dessus de la prévision du bilan thermique),
   **baisse lente de pression** (tendance sur 4 semaines : petite fuite, vase d'expansion),
   **entretien annuel** à prévoir (bouton « Entretien effectué »).
 - **Bilan thermique** : déperditions de la maison en W/K par saison de chauffe, et **seuil de chauffe**

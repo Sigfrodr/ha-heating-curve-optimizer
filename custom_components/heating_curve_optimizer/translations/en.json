@@ -78,7 +78,7 @@
           },
           "alerts": {
             "name": "Boiler alerts",
-            "description": "Pressure, unreachable boiler, frost protection, short cycling, overconsumption versus the thermal model, slow pressure loss, service due date (\"Service done\" button).",
+            "description": "Pressure, unreachable boiler, frost protection, short cycling, frozen room sensor, overconsumption versus the thermal model, slow pressure loss, service due date (\"Service done\" button).",
             "data": {
               "min_pressure": "Minimum water pressure",
               "short_cycle_minutes": "Alert below this burner cycle length",

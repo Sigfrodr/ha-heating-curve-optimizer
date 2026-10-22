@@ -23,6 +23,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "stabilisation (après ajustement)": "settling (after an adjustment)",
         "pilotage hors confort (mesure ignorée)": "pilot outside comfort (sample skipped)",
         "gains solaires (mesure ignorée)": "solar gains (sample skipped)",
+        "sonde d'ambiance figée (mesure ignorée)": "room sensor frozen (sample skipped)",
         "collecte": "collecting",
         "chauffage inactif (mesure ignorée)": "heating not running (sample skipped)",
         "en attente de données ({n}/{m})": "waiting for data ({n}/{m})",
@@ -57,6 +58,10 @@ CATALOG: dict[str, dict[str, str]] = {
             "Low water pressure: {p} bar (minimum {m} bar). Top up the heating circuit.",
         "Chaudière injoignable via ViCare depuis {n} min.": "Boiler unreachable through ViCare for {n} min.",
         "Protection antigel de la chaudière active.": "Boiler frost protection is active.",
+        "Température ambiante figée à {v} °C depuis {h} h alors que le brûleur a démarré {n} fois : "
+        "thermostat d'ambiance à vérifier (le redémarrer s'il est éteint). Les mesures sont ignorées en attendant.":
+            "Room temperature stuck at {v} °C for {h} h while the burner started {n} times: check the room "
+            "thermostat (restart it if it is off). Samples are skipped meanwhile.",
         "Cycles courts : {a} démarrages en {b} h, {c} min de flamme en moyenne par démarrage.":
             "Short cycling: {a} burner starts in {b} h, {c} min of flame per start on average.",
         "La pression baisse lentement ({t} bar/semaine sur 4 semaines) : petite fuite ou vase d'expansion à vérifier.":

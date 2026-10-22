@@ -82,6 +82,7 @@ class AlertInputs:
     burner: BurnerStats | None
     short_cycle_minutes: float
     min_starts_for_cycle_alert: int = 12
+    room_frozen: tuple[float, float, int] | None = None  # (valeur, heures, démarrages brûleur)
 
 
 def evaluate_alerts(i: AlertInputs) -> dict[str, str]:
@@ -105,8 +106,52 @@ def evaluate_alerts(i: AlertInputs) -> dict[str, str]:
                 f"Cycles courts : {b.starts} démarrages en {b.span_hours:.0f} h, "
                 f"{b.cycle_minutes:.0f} min de flamme en moyenne par démarrage."
             )
+    if i.room_frozen:
+        value, hours, starts = i.room_frozen
+        alerts["room_frozen"] = (
+            f"Température ambiante figée à {value:g} °C depuis {hours:.0f} h alors que le brûleur a démarré "
+            f"{starts} fois : thermostat d'ambiance à vérifier (le redémarrer s'il est éteint). "
+            "Les mesures sont ignorées en attendant."
+        )
     return alerts
 
+
+# ------------------------------------------------------------------ sonde d'ambiance figée
+
+FROZEN_ROOM_HOURS = 4.0
+FROZEN_ROOM_STARTS = 3
+
+
+def room_frozen(unchanged_hours: float, burner_starts: float | None) -> bool:
+    """Sonde d'ambiance figée : même valeur depuis des heures alors que le brûleur tourne.
+
+    Une pièce chauffée bouge d'au moins 0,1 K en quelques cycles brûleur. Au repos (nuit, mi-saison),
+    la valeur peut rester stable près de 5 h : sans démarrages du brûleur, rien n'est conclu.
+    """
+    return (
+        burner_starts is not None
+        and unchanged_hours >= FROZEN_ROOM_HOURS
+        and burner_starts >= FROZEN_ROOM_STARTS
+    )
+
+
+
+def drop_frozen_samples(samples: list[dict], max_gap_hours: float = 3.0) -> list[dict]:
+    """Retire les mesures prises pendant une sonde figée (avant la détection, ou avant v0.7.8).
+
+    Les mesures ne sont collectées que chauffage en marche : une même valeur d'ambiance sur
+    FROZEN_ROOM_HOURS ou plus de mesures consécutives est une sonde figée.
+    """
+    kept: list[dict] = []
+    run: list[dict] = []
+    for s in [*samples, None]:
+        if s is not None and run and s["room"] == run[-1]["room"] and s["t"] - run[-1]["t"] <= max_gap_hours * 3600:
+            run.append(s)
+            continue
+        if run and (run[-1]["t"] - run[0]["t"]) / 3600 < FROZEN_ROOM_HOURS:
+            kept.extend(run)
+        run = [s] if s is not None else []
+    return kept
 
 # ------------------------------------------------------------------ relance du matin
 

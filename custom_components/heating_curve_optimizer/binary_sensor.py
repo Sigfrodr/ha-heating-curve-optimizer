@@ -1,4 +1,4 @@
-"""Alerte chaudière (pression, injoignable, antigel, cycles courts)."""
+"""Alerte chaudière (pression, injoignable, antigel, cycles courts, sonde figée)."""
 
 from __future__ import annotations
 
