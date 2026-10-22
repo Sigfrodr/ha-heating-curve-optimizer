@@ -114,6 +114,7 @@ HEATING_RECENT_SECONDS = 3600
 RESTART_OFF_SECONDS = 30  # coupure de l'alimentation : la chaudière et le Vitotrol (alimenté par le bus) repartent
 AUTO_RESTART_INTERVAL = 86400  # au plus un redémarrage automatique par jour
 RESTART_BURNER_WAIT = 1800  # attendre la fin d'un cycle brûleur, 30 min au plus
+VICARE_RELOAD_INTERVAL = 900  # rechargement de ViCare sans entités : toutes les 15 min au plus
 REFERENCE_MAX_AGE = 3 * 3600  # un détecteur de fumée ne publie parfois sa température que toutes les 3 h
 # radiateur électrique à fil pilote : modes qui chauffent, mis en arrêt pendant que le chauffage gaz tourne
 ELECTRIC_HOLD_MODES = ("comfort", "comfort_-1", "comfort_-2", "eco")
@@ -165,6 +166,7 @@ class HeatingCurveOptimizer:
             "overconsumption_log": [],
         }
         self._unavailable_since: float | None = None
+        self._vicare_reload_at = 0.0
         self.pilot = HeatingPilot(self)
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._pending = None
@@ -1746,13 +1748,24 @@ class HeatingCurveOptimizer:
         vicare = self._vicare_entry()
         if vicare is None or vicare.state is not ConfigEntryState.LOADED:
             return
+        entries = [
+            e for e in er.async_entries_for_config_entry(er.async_get(self.hass), vicare.entry_id) if not e.disabled_by
+        ]
         ids = [
             e.entity_id
-            for e in er.async_entries_for_config_entry(er.async_get(self.hass), vicare.entry_id)
-            if not e.disabled_by
-            and (st := self.hass.states.get(e.entity_id)) is not None
+            for e in entries
+            if (st := self.hass.states.get(e.entity_id)) is not None
             and not st.attributes.get("restored")  # entité orpheline (plus fournie par ViCare)
         ]
+        if entries and not ids:
+            # ViCare chargé sans aucune entité : la chaudière était injoignable à son démarrage (débranchée,
+            # coupure, cloud). Sans interrogation automatique, rien ne la relance : on recharge ViCare.
+            now = time.time()
+            if now - self._vicare_reload_at >= VICARE_RELOAD_INTERVAL:
+                self._vicare_reload_at = now
+                _LOGGER.warning("ViCare chargé sans entités (chaudière injoignable au démarrage) : rechargement")
+                self.hass.config_entries.async_schedule_reload(vicare.entry_id)
+            return
         if self.cfg[CONF_CLIMATE] in ids:
             ids.remove(self.cfg[CONF_CLIMATE])
             ids.insert(0, self.cfg[CONF_CLIMATE])

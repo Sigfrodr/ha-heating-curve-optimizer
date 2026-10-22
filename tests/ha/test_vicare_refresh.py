@@ -58,3 +58,23 @@ async def test_polling_disabled_by_user_is_left_alone(hass: HomeAssistant, vicar
         await hass.async_block_till_done()
     assert vicare_entry.pref_disable_polling  # coupé par l'utilisateur : laissé tel quel
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_vicare_without_entities_is_reloaded(hass: HomeAssistant, vicare):
+    """Chaudière injoignable au démarrage de HA : ViCare chargé, toutes ses entités restaurées."""
+    calls = []
+    hass.services.async_register("homeassistant", "update_entity", lambda call: calls.append(call.data["entity_id"]))
+    vicare_entry = hass.config_entries.async_entries("vicare")[0]
+    vicare_entry.mock_state(hass, ConfigEntryState.LOADED)
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    for entity_id in vicare:
+        hass.states.async_set(entity_id, "unavailable", {"restored": True})
+    optimizer = entry.runtime_data
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        await optimizer._async_refresh_vicare()
+        reload.assert_called_once_with(vicare_entry.entry_id)
+        await optimizer._async_refresh_vicare()
+        assert reload.call_count == 1  # pas plus d'un rechargement par quart d'heure
+    assert calls == []
+    await hass.config_entries.async_unload(entry.entry_id)
+    vicare_entry.mock_state(hass, ConfigEntryState.NOT_LOADED)
