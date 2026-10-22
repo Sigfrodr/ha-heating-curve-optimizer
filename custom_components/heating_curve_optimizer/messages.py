@@ -40,6 +40,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "La prise de la chaudière ne s'est pas rallumée après le redémarrage : la rallumer à la main.":
             "The boiler plug did not switch back on after the restart: switch it on manually.",
         "sonde d'ambiance bloquée": "room sensor stuck",
+        "La prise de la chaudière était éteinte : elle a été rallumée.": "The boiler plug was off: it has been switched back on.",
         "demandé depuis le téléphone": "requested from the phone",
         "bouton Redémarrer la chaudière": "Restart boiler button",
         "Courbe de chauffe : proposition": "Heating curve: proposal",

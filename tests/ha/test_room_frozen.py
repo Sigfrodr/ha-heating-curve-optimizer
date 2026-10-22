@@ -155,4 +155,10 @@ async def test_boiler_restart_manual_auto_and_notification(hass: HomeAssistant, 
     hass.bus.async_fire("mobile_app_notification_action", {"action": "HCO_RESTART_BOILER"})
     await hass.async_block_till_done()
     assert calls == ["turn_off", "turn_on"]
+
+    # prise trouvée éteinte hors redémarrage : rallumée
+    calls.clear()
+    hass.states.async_set(plug, "off")
+    await optimizer._async_sample()
+    assert calls == ["turn_on"]
     await hass.config_entries.async_unload(entry.entry_id)

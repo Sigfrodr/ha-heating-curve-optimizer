@@ -294,6 +294,7 @@ class HeatingCurveOptimizer:
         room = self._room_temperature(state)
         self._watch_room(room)
         await self._async_auto_restart()
+        await self._async_power_watchdog()
         await self._async_failsafe(state)
         await self._async_monitor(state)
         if state is None or state.state == "unavailable":
@@ -449,6 +450,21 @@ class HeatingCurveOptimizer:
         self.data.pop("stuck_seen", None)
         self._save()
         self.hass.async_create_task(self.async_restart_boiler("sonde d'ambiance bloquée", auto=True))
+
+    async def _async_power_watchdog(self) -> None:
+        """Prise de la chaudière trouvée éteinte hors redémarrage (coupure secteur pendant un cycle, fausse
+        manœuvre) : on la rallume. Certaines prises (TP-Link HS100) n'ont pas de réglage « toujours allumée »."""
+        switch = self.cfg.get(CONF_BOILER_SWITCH)
+        st = self.hass.states.get(switch) if switch else None
+        if st is None or st.state != "off" or getattr(self, "_restarting", False):
+            return
+        _LOGGER.warning("Prise de la chaudière %s éteinte : rallumage", switch)
+        await self.hass.services.async_call("switch", "turn_on", {"entity_id": switch}, blocking=True)
+        await self._async_notify(
+            "Chaudière : alerte",
+            "La prise de la chaudière était éteinte : elle a été rallumée.",
+            "restart",
+        )
 
     async def async_restart_boiler(self, reason: str, auto: bool = False) -> None:
         """Coupe l'alimentation de la chaudière 30 s puis la rallume (prise connectée)."""
