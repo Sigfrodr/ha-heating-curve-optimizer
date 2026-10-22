@@ -85,7 +85,11 @@
               "short_cycle_minutes": "Durée de cycle brûleur sous laquelle alerter",
               "overconsumption_ratio": "Surconsommation : alerter au-delà de (× la prévision)",
               "maintenance_months": "Intervalle entre deux entretiens",
-              "daily_check_time": "Heure des contrôles quotidiens"
+              "daily_check_time": "Heure des contrôles quotidiens",
+              "boiler_switch": "Prise d'alimentation de la chaudière (redémarrage si la sonde d'ambiance se bloque)",
+              "auto_restart": "Redémarrer automatiquement la chaudière (1 fois par jour au plus)",
+              "boiler_power": "Puissance électrique de la chaudière (prise)",
+              "boiler_energy": "Énergie électrique de la chaudière (prise)"
             },
             "description": "Pression, chaudière injoignable, antigel, cycles courts, sonde d'ambiance figée, surconsommation par rapport au bilan thermique, baisse lente de pression, échéance d'entretien (bouton « Entretien effectué »)."
           },
@@ -173,6 +177,9 @@
     "button": {
       "evaluate": {
         "name": "Évaluer maintenant"
+      },
+      "restart_boiler": {
+        "name": "Redémarrer la chaudière"
       },
       "maintenance_done": {
         "name": "Entretien effectué"

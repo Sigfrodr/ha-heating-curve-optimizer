@@ -48,7 +48,7 @@ async def test_options_flow_flattens_sections(hass: HomeAssistant, vicare):
             "rooms_weather": {"rooms": ["climate.cuisine"], "solar_filter": True,
                               "solar_cloud_max": 60, "solar_min_elevation": 10, "room_reference_offset": 0.1},
             "alerts": {"min_pressure": 1.0, "short_cycle_minutes": 10, "overconsumption_ratio": 1.3,
-                       "maintenance_months": 12, "daily_check_time": "06:30:00"},
+                       "maintenance_months": 12, "daily_check_time": "06:30:00", "auto_restart": False},
             "pilot": {"standby_temp": 15, "demand_delay_minutes": 20, "sun_anticipation": True, "write_budget": 8,
                       "vicare_refresh_minutes": 0},
             "billing": {"monthly_payment": 116.71, "payments_count": 11, "fixed_annual_cost": 350,

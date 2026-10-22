@@ -345,6 +345,16 @@ const EN = {
   "Planning d'eau chaude envoyé": "Hot water schedule sent",
   "Copier le lundi sur la semaine": "Copy Monday to weekdays",
   "Chauffage électrique d'appoint": "Electric backup heating",
+  "Électricité de la chaudière": "Boiler electricity",
+  "Mesurée par la prise qui l'alimente, au prix de l'électricité des Réglages.": "Measured by the plug that powers it, at the electricity price from Settings.",
+  "puissance actuelle": "current power",
+  "Redémarrages": "Restarts",
+  "automatique": "automatic",
+  "manuel": "manual",
+  "échec": "failed",
+  "Redémarrage automatique si la sonde d'ambiance se bloque : activé (1 fois par jour au plus).": "Automatic restart when the room sensor gets stuck: on (at most once a day).",
+  "Redémarrage automatique : désactivé (bouton « Redémarrer la chaudière » et notification seulement).": "Automatic restart: off (\"Restart boiler\" button and notification only).",
+  "Aucun redémarrage pour l'instant.": "No restart so far.",
   "Apports électriques": "Electrical gains",
   "Avec le compteur Linky, l'électricité consommée dans la maison (≈ 90 % finit en chaleur) est comptée comme apport : les déperditions ne sont plus faussées par les appareils.":
     "With the Linky meter, electricity used in the house (≈ 90 % ends up as heat) is counted as a gain: heat loss is no longer skewed by appliances.",
@@ -1429,7 +1439,7 @@ class HeatingCurvePanel extends HTMLElement {
     const iso = (ms) => new Date(ms).toISOString();
     const elec = this._data.electric || [];
     const daily = [this._data.gas_source?.entity || e.gas_heating_day, e.gas_dhw_day, e.outside, e.burner_starts, e.burner_hours,
-      ...elec.map((x) => x.energy), this._data.linky?.statistic_id].filter(Boolean);
+      ...elec.map((x) => x.energy), this._data.linky?.statistic_id, this._data.boiler_power?.energy].filter(Boolean);
     const hourly = [e.supply, e.modulation, e.gas_dhw_day, ...elec.map((x) => x.humidity)].filter(Boolean);
     const startDay = new Date(now - 60 * DAY);
     startDay.setHours(0, 0, 0, 0);
@@ -1590,6 +1600,7 @@ class HeatingCurvePanel extends HTMLElement {
       ${this._billCard()}
       ${this._linkyCard(pal)}
       ${this._electricCard(pal)}
+      ${this._boilerPowerCard(pal)}
       ${this._recoveryCard()}`;
   }
 
@@ -1725,6 +1736,37 @@ class HeatingCurvePanel extends HTMLElement {
       ${blocks}
       ${info(t("Le gaz coûte bien moins cher que l'électricité : l'électrique ne devrait servir qu'en appoint (douches, séchage, chaudière en réduit)."),
         t("Une douche est comptée quand l'humidité dépasse 88 %."))}</div>`;
+  }
+
+  _boilerPowerCard(pal) {
+    const bp = this._data.boiler_power;
+    if (!bp) return "";
+    const price = this._data.costs.elec_price;
+    const watts = num(this._state(bp.power)?.state);
+    let kpis = watts != null ? `<div class="kpi"><div class="v">${fmt(watts, 0)} W</div><div class="l">${t("puissance actuelle")}</div></div>` : "";
+    let chart = "";
+    if (bp.energy && this._stats && !this._stats.error) {
+      const days = this._dailySeries(bp.energy, "change").slice(-30).map((r) => ({ t: r.t, v: Math.max(0, r.v) }));
+      const sum = (list) => list.reduce((a, x) => a + x.v, 0);
+      const k7 = sum(days.slice(-7)), k30 = sum(days);
+      kpis += `<div class="kpi"><div class="v">${fmt(k7, 1)} <small>${t("≈ {v} €", { v: fmt(k7 * price, 2) })}</small></div><div class="l">${t("kWh sur 7 j")}</div></div>
+        <div class="kpi"><div class="v">${fmt(k30, 1)} <small>${t("≈ {v} €", { v: fmt(k30 * price, 2) })}</small></div><div class="l">${t("kWh sur 30 j")}</div></div>`;
+      if (k30 > 0) chart = this._columnChart("boiler-elec", days, (x) => x.v, pal.s3, {
+        fmtY: (v) => fmt(v, 2),
+        tip: (x) => `<b>${dayLabel(x.t)}</b><div>${t("{v} kWh", { v: fmt(x.v, 2) })} · ${t("≈ {v} €", { v: fmt(x.v * price, 2) })}</div>`,
+      });
+    }
+    const restarts = (bp.restarts || []).slice().reverse();
+    const list = restarts.length
+      ? `<div class="table-wrap"><table><thead><tr><th>${t("Redémarrages")}</th><th></th><th></th></tr></thead><tbody>${restarts.map((r) =>
+        `<tr><td>${dateFr(r.t)}</td><td>${esc(r.reason)}</td><td>${r.ok ? t(r.auto ? "automatique" : "manuel") : `<span class="err">${t("échec")}</span>`}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="note">${t("Aucun redémarrage pour l'instant.")}</p>`;
+    return `<div class="card"><h2>${t("Électricité de la chaudière")}</h2>
+      <p class="sub">${t("Mesurée par la prise qui l'alimente, au prix de l'électricité des Réglages.")}</p>
+      ${kpis ? `<div class="kpis">${kpis}</div>` : ""}${chart}
+      ${bp.switch ? `<p class="note">${t(bp.auto_restart
+        ? "Redémarrage automatique si la sonde d'ambiance se bloque : activé (1 fois par jour au plus)."
+        : "Redémarrage automatique : désactivé (bouton « Redémarrer la chaudière » et notification seulement).")}</p>${list}` : ""}</div>`;
   }
 
   _recoveryCard() {

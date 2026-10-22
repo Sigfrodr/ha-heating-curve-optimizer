@@ -34,6 +34,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "ajustement appliqué": "adjustment applied",
         # notifications
         "Chaudière : alerte": "Boiler: alert",
+        "Chaudière redémarrée": "Boiler restarted",
+        "Redémarrer la chaudière": "Restart boiler",
+        "Alimentation coupée {s} s puis rétablie ({r}).": "Power cut for {s} s then restored ({r}).",
+        "La prise de la chaudière ne s'est pas rallumée après le redémarrage : la rallumer à la main.":
+            "The boiler plug did not switch back on after the restart: switch it on manually.",
+        "sonde d'ambiance bloquée": "room sensor stuck",
+        "demandé depuis le téléphone": "requested from the phone",
+        "bouton Redémarrer la chaudière": "Restart boiler button",
         "Courbe de chauffe : proposition": "Heating curve: proposal",
         "Courbe de chauffe ajustée": "Heating curve adjusted",
         "Courbe de chauffe": "Heating curve",

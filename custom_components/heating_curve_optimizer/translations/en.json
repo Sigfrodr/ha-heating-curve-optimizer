@@ -86,7 +86,11 @@
               "short_cycle_minutes": "Alert below this burner cycle length",
               "overconsumption_ratio": "Overconsumption: alert above (× forecast)",
               "maintenance_months": "Interval between services",
-              "daily_check_time": "Daily checks time"
+              "daily_check_time": "Daily checks time",
+              "boiler_switch": "Boiler power plug (restart when the room sensor gets stuck)",
+              "auto_restart": "Restart the boiler automatically (at most once a day)",
+              "boiler_power": "Boiler electrical power (plug)",
+              "boiler_energy": "Boiler electrical energy (plug)"
             }
           },
           "dhw": {
@@ -173,6 +177,9 @@
     "button": {
       "evaluate": {
         "name": "Evaluate now"
+      },
+      "restart_boiler": {
+        "name": "Restart boiler"
       },
       "maintenance_done": {
         "name": "Service done"

@@ -83,7 +83,9 @@ Garde-fous : 5 min minimum entre deux écritures, 48 écritures par jour au plus
   cycles courts, **sonde d'ambiance figée** (même valeur depuis 4 h alors que le brûleur démarre : mesures ignorées
   et retirées) ou **en désaccord avec une sonde de référence** (> 1 K pendant 1 h ; la référence prend alors le
   relais pour les mesures, et en cas de surchauffe de 1,5 K les consignes confort/normal sont abaissées au réduit
-  jusqu'au retour de la sonde), **surconsommation** (gaz de la veille nettement au-dessus de la prévision du bilan thermique),
+  jusqu'au retour de la sonde). Avec une **prise connectée sur l'alimentation de la chaudière** : bouton
+  « Redémarrer la chaudière » (aussi dans la notification), redémarrage automatique facultatif (1 fois par jour au
+  plus, après la fin du cycle brûleur) et consommation électrique de la chaudière dans l'onglet Économies, **surconsommation** (gaz de la veille nettement au-dessus de la prévision du bilan thermique),
   **baisse lente de pression** (tendance sur 4 semaines : petite fuite, vase d'expansion),
   **entretien annuel** à prévoir (bouton « Entretien effectué »).
 - **Bilan thermique** : déperditions de la maison en W/K par saison de chauffe, et **seuil de chauffe**

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -35,6 +36,10 @@ from .const import (
     CONF_NOTIFY,
     CONF_OUTSIDE,
     CONF_PROGRAMS,
+    CONF_AUTO_RESTART,
+    CONF_BOILER_ENERGY,
+    CONF_BOILER_POWER,
+    CONF_BOILER_SWITCH,
     CONF_ROOM,
     CONF_ROOM_REFERENCE,
     CONF_ROOM_REFERENCE_OFFSET,
@@ -60,6 +65,7 @@ from .const import (
     CONF_OVERCONSUMPTION_RATIO,
     NOTIFY_ACTION_APPLY,
     NOTIFY_ACTION_IGNORE,
+    NOTIFY_ACTION_RESTART,
     DOMAIN,
     TUNING_KEYS,
 )
@@ -105,6 +111,9 @@ SHIFT_RETRY_SECONDS = 300
 HEATING_FILTER_VERSION = 2
 DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
 HEATING_RECENT_SECONDS = 3600
+RESTART_OFF_SECONDS = 30  # coupure de l'alimentation : la chaudière et le Vitotrol (alimenté par le bus) repartent
+AUTO_RESTART_INTERVAL = 86400  # au plus un redémarrage automatique par jour
+RESTART_BURNER_WAIT = 1800  # attendre la fin d'un cycle brûleur, 30 min au plus
 REFERENCE_MAX_AGE = 3 * 3600  # un détecteur de fumée ne publie parfois sa température que toutes les 3 h
 # radiateur électrique à fil pilote : modes qui chauffent, mis en arrêt pendant que le chauffage gaz tourne
 ELECTRIC_HOLD_MODES = ("comfort", "comfort_-1", "comfort_-2", "eco")
@@ -284,6 +293,7 @@ class HeatingCurveOptimizer:
         state = self.hass.states.get(self.cfg[CONF_CLIMATE])
         room = self._room_temperature(state)
         self._watch_room(room)
+        await self._async_auto_restart()
         await self._async_failsafe(state)
         await self._async_monitor(state)
         if state is None or state.state == "unavailable":
@@ -415,6 +425,81 @@ class HeatingCurveOptimizer:
             self.data["samples"] = [s for s in self.data["samples"] if s["t"] < start or s.get("src")]
         if self.room_faulty or was_faulty:
             self._save()
+
+    def _room_stuck(self) -> bool:
+        """Sonde d'ambiance bloquée : figée, ou en désaccord avec la référence sans avoir bougé depuis."""
+        if self.data.get("room_frozen"):
+            return True
+        watch, since = self.data.get("room_watch"), self.data.get("room_diverge_since")
+        return bool(self.data.get("room_diverging") and watch and since and watch["since"] <= since)
+
+    async def _async_auto_restart(self) -> None:
+        """Redémarrage automatique de la chaudière (une fois par jour au plus) quand la sonde est bloquée."""
+        if not (self.cfg.get(CONF_AUTO_RESTART) and self.cfg.get(CONF_BOILER_SWITCH)) or not self._room_stuck():
+            self.data.pop("stuck_seen", None)
+            return
+        now = time.time()
+        if now - float(self.data.get("last_auto_restart") or 0) < AUTO_RESTART_INTERVAL:
+            return
+        seen = self.data.setdefault("stuck_seen", now)
+        burner = self.hass.states.get(self._device_entity("binary_sensor", "burner") or "")
+        if burner is not None and burner.state == "on" and now - seen < RESTART_BURNER_WAIT:
+            return  # laisser finir le cycle brûleur
+        self.data["last_auto_restart"] = now
+        self.data.pop("stuck_seen", None)
+        self._save()
+        self.hass.async_create_task(self.async_restart_boiler("sonde d'ambiance bloquée", auto=True))
+
+    async def async_restart_boiler(self, reason: str, auto: bool = False) -> None:
+        """Coupe l'alimentation de la chaudière 30 s puis la rallume (prise connectée)."""
+        switch = self.cfg.get(CONF_BOILER_SWITCH)
+        if not switch:
+            raise RuntimeError("aucune prise d'alimentation de la chaudière configurée")
+        if getattr(self, "_restarting", False):
+            return
+        self._restarting = True
+        try:
+            _LOGGER.warning("Redémarrage de la chaudière (%s) : coupure de %s", reason, switch)
+            await self.hass.services.async_call("switch", "turn_off", {"entity_id": switch}, blocking=True)
+            await asyncio.sleep(RESTART_OFF_SECONDS)
+            for _ in range(3):
+                await self.hass.services.async_call("switch", "turn_on", {"entity_id": switch}, blocking=True)
+                await asyncio.sleep(1)
+                if (st := self.hass.states.get(switch)) is not None and st.state == "on":
+                    break
+                await asyncio.sleep(10)
+        finally:
+            self._restarting = False
+        st = self.hass.states.get(switch)
+        ok = st is not None and st.state == "on"
+        log = self.data.setdefault("boiler_restarts", [])
+        log.append({"t": time.time(), "reason": reason, "auto": auto, "ok": ok})
+        self.data["boiler_restarts"] = log[-20:]
+        self._save()
+        if ok:
+            await self._async_notify(
+                "Chaudière redémarrée",
+                f"Alimentation coupée {RESTART_OFF_SECONDS} s puis rétablie ({reason}).",
+                "restart",
+            )
+        else:
+            await self._async_notify(
+                "Chaudière : alerte",
+                "La prise de la chaudière ne s'est pas rallumée après le redémarrage : la rallumer à la main.",
+                "restart",
+            )
+
+    def _boiler_power_snapshot(self) -> dict | None:
+        switch, power, energy = (self.cfg.get(k) for k in (CONF_BOILER_SWITCH, CONF_BOILER_POWER, CONF_BOILER_ENERGY))
+        if not (switch or power or energy):
+            return None
+        return {
+            "switch": switch or None,
+            "power": power or None,
+            "energy": energy or None,
+            "auto_restart": bool(self.cfg.get(CONF_AUTO_RESTART)),
+            "restarts": [{**r, "reason": self.tr(r["reason"])} for r in (self.data.get("boiler_restarts") or [])[-5:]],
+        }
 
     async def _async_failsafe(self, climate_state) -> None:
         """Consignes abaissées pendant une surchauffe avec sonde d'ambiance défaillante."""
@@ -602,7 +687,11 @@ class HeatingCurveOptimizer:
         previous = self.data["alerts"]
         for code, message in alerts.items():
             if code not in previous:
-                await self._async_notify("Chaudière : alerte", message, f"alert_{code}")
+                actions = (
+                    [{"action": NOTIFY_ACTION_RESTART, "title": "Redémarrer la chaudière"}]
+                    if code in ("room_frozen", "room_diverging") and self.cfg.get(CONF_BOILER_SWITCH) else None
+                )
+                await self._async_notify("Chaudière : alerte", message, f"alert_{code}", actions)
         for code in previous:
             if code not in alerts:
                 persistent_notification.async_dismiss(
@@ -1008,6 +1097,8 @@ class HeatingCurveOptimizer:
                 "temperature": entity_choices(
                     "sensor", lambda st: st.attributes.get("device_class") == "temperature"
                 ),
+                "power": entity_choices("sensor", lambda st: st.attributes.get("device_class") == "power"),
+                "switch": entity_choices("switch"),
                 "notify": sorted(s for s in self.hass.services.async_services().get("notify", {})
                                  if s.startswith("mobile_app_") or s in ("phones",)),
             },
@@ -1154,6 +1245,7 @@ class HeatingCurveOptimizer:
             },
             "electric": self._electric_heaters(),
             "linky": self._linky_snapshot(),
+            "boiler_power": self._boiler_power_snapshot(),
             "report": {
                 "enabled": bool(self.cfg.get(CONF_WEEKLY_REPORT)),
                 "weekday": int(self.cfg[CONF_REPORT_WEEKDAY]),
@@ -1687,6 +1779,8 @@ class HeatingCurveOptimizer:
             )
         elif action == NOTIFY_ACTION_IGNORE:
             persistent_notification.async_dismiss(self.hass, f"{DOMAIN}_{self.entry.entry_id}")
+        elif action == NOTIFY_ACTION_RESTART:
+            await self.async_restart_boiler("demandé depuis le téléphone")
 
     # ------------------------------------------------------- contrôles quotidiens
 

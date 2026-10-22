@@ -47,6 +47,13 @@ CONF_DAILY_CHECK_TIME = "daily_check_time"
 CONTROL_MODES = ("off", "simulation", "active")
 NOTIFY_ACTION_APPLY = "HCO_APPLY"
 NOTIFY_ACTION_IGNORE = "HCO_IGNORE"
+NOTIFY_ACTION_RESTART = "HCO_RESTART_BOILER"
+
+# Alimentation de la chaudière par une prise connectée : redémarrage (sonde d'ambiance figée) et consommation
+CONF_BOILER_SWITCH = "boiler_switch"
+CONF_BOILER_POWER = "boiler_power"
+CONF_BOILER_ENERGY = "boiler_energy"
+CONF_AUTO_RESTART = "auto_restart"
 
 # Les clés de réglage portent le nom des champs de heating_curve.Settings
 TUNING_KEYS = (
@@ -75,6 +82,10 @@ DEFAULT_OPTIONS = {
     CONF_SOLAR_FILTER: True,
     CONF_ROOM_REFERENCE: "",
     CONF_ROOM_REFERENCE_OFFSET: 0.0,
+    CONF_BOILER_SWITCH: "",
+    CONF_BOILER_POWER: "",
+    CONF_BOILER_ENERGY: "",
+    CONF_AUTO_RESTART: False,
     CONF_SOLAR_CLOUD_MAX: 60.0,
     CONF_SOLAR_MIN_ELEVATION: 10.0,
     CONF_MIN_PRESSURE: 1.0,

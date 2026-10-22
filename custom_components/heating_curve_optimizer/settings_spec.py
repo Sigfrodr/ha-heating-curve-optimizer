@@ -52,6 +52,13 @@ FIELDS: list[dict] = [
     _n("overconsumption_ratio", "alerts", 1.1, 3, 0.05),
     _n("maintenance_months", "alerts", 6, 36, 1, "mois"),
     {"key": "daily_check_time", "section": "alerts", "kind": "time"},
+    {"key": "boiler_switch", "section": "alerts", "kind": "entity", "domain": "switch", "choices": "switch",
+     "optional": True},
+    {"key": "auto_restart", "section": "alerts", "kind": "bool"},
+    {"key": "boiler_power", "section": "alerts", "kind": "entity", "domain": "sensor", "device_class": "power",
+     "choices": "power", "optional": True},
+    {"key": "boiler_energy", "section": "alerts", "kind": "entity", "domain": "sensor", "device_class": "energy",
+     "optional": True},
     # eau chaude
     {"key": "legionella_weekday", "section": "dhw", "kind": "weekday"},
     {"key": "legionella_time", "section": "dhw", "kind": "time"},
@@ -74,7 +81,8 @@ FIELDS: list[dict] = [
 ]
 
 # Valeur vide des champs facultatifs (les entrées existantes n'ont pas toujours la clé)
-EMPTY = {"notify": "", "weather": "", "rooms": [], "gas_meter": "", "room_reference": "", "billing_start": "", "linky_token": ""}
+EMPTY = {"notify": "", "weather": "", "rooms": [], "gas_meter": "", "room_reference": "", "boiler_switch": "", "boiler_power": "",
+         "boiler_energy": "", "billing_start": "", "linky_token": ""}
 SECRETS = {f["key"] for f in FIELDS if f["kind"] == "secret"}
 
 

@@ -105,3 +105,54 @@ async def test_reference_sensor_divergence_fallback_and_failsafe(hass: HomeAssis
         ("number.vicare_comfort_temperature", 21.0), ("number.vicare_normal_temperature", 20.0),
     }
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_boiler_restart_manual_auto_and_notification(hass: HomeAssistant, vicare, monkeypatch):
+    from custom_components.heating_curve_optimizer import optimizer as opt_mod
+
+    monkeypatch.setattr(opt_mod, "RESTART_OFF_SECONDS", 0)
+    plug = "switch.alimentation_chaudiere"
+    hass.states.async_set(plug, "on")
+    _register(hass, "binary_sensor.vicare_burner_active", "burner", "on")
+    entry = await _pilot_entry(hass, rooms_demand=True)
+    optimizer = entry.runtime_data
+    optimizer.cfg.update({"boiler_switch": plug, "auto_restart": True})
+    # après le chargement : l'intégration switch enregistre ses propres services
+    calls = []
+    for service in ("turn_off", "turn_on"):
+        hass.services.async_register(
+            "switch", service, lambda call: calls.append(call.service) or None,
+        )
+
+    # bouton / appel direct : coupure puis remise en marche
+    await optimizer.async_restart_boiler("test")
+    assert calls == ["turn_off", "turn_on"] and hass.states.get(plug).state == "on"
+    assert optimizer.data["boiler_restarts"][-1]["ok"]
+    assert optimizer.snapshot()["boiler_power"]["restarts"][-1]["reason"] == "test"
+
+    # sonde figée, brûleur en marche : on attend la fin du cycle (30 min au plus)
+    calls.clear()
+    _room(hass, 20.8)
+    await optimizer._async_sample()
+    optimizer.data["room_watch"]["since"] = time.time() - 4 * 3600
+    hass.states.async_set(STARTS, "15470")
+    await optimizer._async_sample()
+    await hass.async_block_till_done()
+    assert optimizer.data["room_frozen"] and calls == []
+    hass.states.async_set("binary_sensor.vicare_burner_active", "off")
+    await optimizer._async_sample()
+    await hass.async_block_till_done()
+    assert calls == ["turn_off", "turn_on"]
+    assert optimizer.data["boiler_restarts"][-1]["auto"]
+
+    # une seule fois par jour
+    calls.clear()
+    await optimizer._async_sample()
+    await hass.async_block_till_done()
+    assert calls == []
+
+    # bouton de la notification
+    hass.bus.async_fire("mobile_app_notification_action", {"action": "HCO_RESTART_BOILER"})
+    await hass.async_block_till_done()
+    assert calls == ["turn_off", "turn_on"]
+    await hass.config_entries.async_unload(entry.entry_id)
