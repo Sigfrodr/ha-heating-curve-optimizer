@@ -21,6 +21,8 @@ CONF_NOTIFY = "notify"
 CONF_ROOMS = "rooms"  # thermostats de pièces (Better Thermostat…) pour le mode multi-pièces
 CONF_WEATHER = "weather"
 CONF_SOLAR_FILTER = "solar_filter"
+CONF_ROOM_REFERENCE = "room_reference"  # 2e sonde près de la sonde d'ambiance : contrôle croisé et secours
+CONF_ROOM_REFERENCE_OFFSET = "room_reference_offset"  # écart habituel référence − sonde d'ambiance (K)
 CONF_SOLAR_CLOUD_MAX = "solar_cloud_max"
 CONF_SOLAR_MIN_ELEVATION = "solar_min_elevation"
 CONF_MIN_PRESSURE = "min_pressure"
@@ -71,6 +73,8 @@ DEFAULT_OPTIONS = {
     CONF_ROOMS: [],
     CONF_WEATHER: "",
     CONF_SOLAR_FILTER: True,
+    CONF_ROOM_REFERENCE: "",
+    CONF_ROOM_REFERENCE_OFFSET: 0.0,
     CONF_SOLAR_CLOUD_MAX: 60.0,
     CONF_SOLAR_MIN_ELEVATION: 10.0,
     CONF_MIN_PRESSURE: 1.0,

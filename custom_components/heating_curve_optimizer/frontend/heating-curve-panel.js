@@ -2405,7 +2405,7 @@ class HeatingCurvePanel extends HTMLElement {
         case "entities":
           return checks(f.key, ch.climate);
         case "entity":
-          return `<select data-key="${f.key}">${opt(f.domain === "weather" ? ch.weather : ch.sensor, val, true)}</select>`;
+          return `<select data-key="${f.key}">${opt(ch[f.choices] || (f.domain === "weather" ? ch.weather : ch.sensor), val, true)}</select>`;
         case "notify":
           return `<select data-key="${f.key}">${opt(ch.notify.map((s) => ({ value: s, label: s })), val, true)}</select>`;
         case "secret":

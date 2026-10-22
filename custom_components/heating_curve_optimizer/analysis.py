@@ -83,6 +83,8 @@ class AlertInputs:
     short_cycle_minutes: float
     min_starts_for_cycle_alert: int = 12
     room_frozen: tuple[float, float, int] | None = None  # (valeur, heures, démarrages brûleur)
+    room_diverging: tuple[float, float, float] | None = None  # (ambiance, référence, minutes)
+    failsafe: tuple[float, float] | None = None  # (référence, consigne abaissée)
 
 
 def evaluate_alerts(i: AlertInputs) -> dict[str, str]:
@@ -113,6 +115,18 @@ def evaluate_alerts(i: AlertInputs) -> dict[str, str]:
             f"{starts} fois : thermostat d'ambiance à vérifier (le redémarrer s'il est éteint). "
             "Les mesures sont ignorées en attendant."
         )
+    if i.room_diverging:
+        room, ref, minutes = i.room_diverging
+        alerts["room_diverging"] = (
+            f"Sonde d'ambiance à {room:g} °C, sonde de référence à {ref:g} °C depuis {minutes:.0f} min : "
+            "thermostat d'ambiance à vérifier. La sonde de référence prend le relais pour les mesures."
+        )
+    if i.failsafe:
+        ref, setpoint = i.failsafe
+        alerts["failsafe"] = (
+            f"Surchauffe ({ref:g} °C mesurés par la sonde de référence) avec une sonde d'ambiance défaillante : "
+            f"consignes de la chaudière abaissées à {setpoint:g} °C jusqu'au retour de la sonde."
+        )
     return alerts
 
 
@@ -134,6 +148,28 @@ def room_frozen(unchanged_hours: float, burner_starts: float | None) -> bool:
         and burner_starts >= FROZEN_ROOM_STARTS
     )
 
+
+
+DIVERGENCE_K = 1.0
+DIVERGENCE_MINUTES = 60.0
+OVERHEAT_K = 1.5  # au-dessus de la consigne : abaisser les consignes de la chaudière
+RESUME_K = 0.5  # sous la consigne : rendre les consignes (la sonde figée referait chauffer)
+
+
+def failsafe_action(engaged: bool, faulty: bool, ref: float | None, target: float | None) -> str | None:
+    """Sécurité quand la sonde d'ambiance est défaillante : « engage », « release » ou None.
+
+    La chaudière ne régule que sur sa propre sonde ; figée sous la consigne, elle chauffe sans fin.
+    On abaisse alors ses consignes tant que la sonde de référence montre une surchauffe, et on les
+    rend quand la pièce redescend (ou quand la sonde d'ambiance repart).
+    """
+    if not engaged:
+        if faulty and ref is not None and target is not None and ref >= target + OVERHEAT_K:
+            return "engage"
+        return None
+    if not faulty or ref is None or target is None or ref <= target - RESUME_K:
+        return "release"
+    return None
 
 
 def drop_frozen_samples(samples: list[dict], max_gap_hours: float = 3.0) -> list[dict]:

@@ -21,6 +21,9 @@ FIELDS: list[dict] = [
     {"key": "solar_filter", "section": "rooms_weather", "kind": "bool"},
     _n("solar_cloud_max", "rooms_weather", 0, 100, 5, "%"),
     _n("solar_min_elevation", "rooms_weather", 0, 60, 1, "°"),
+    {"key": "room_reference", "section": "rooms_weather", "kind": "entity", "domain": "sensor",
+     "device_class": "temperature", "choices": "temperature", "optional": True},
+    _n("room_reference_offset", "rooms_weather", -3, 3, 0.1, "K"),
     # pilotage
     _n("standby_temp", "pilot", 5, 20, 1, "°C"),
     _n("demand_delay_minutes", "pilot", 5, 120, 5, "min"),
@@ -71,7 +74,7 @@ FIELDS: list[dict] = [
 ]
 
 # Valeur vide des champs facultatifs (les entrées existantes n'ont pas toujours la clé)
-EMPTY = {"notify": "", "weather": "", "rooms": [], "gas_meter": "", "billing_start": "", "linky_token": ""}
+EMPTY = {"notify": "", "weather": "", "rooms": [], "gas_meter": "", "room_reference": "", "billing_start": "", "linky_token": ""}
 SECRETS = {f["key"] for f in FIELDS if f["kind"] == "secret"}
 
 

@@ -24,6 +24,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "pilotage hors confort (mesure ignorée)": "pilot outside comfort (sample skipped)",
         "gains solaires (mesure ignorée)": "solar gains (sample skipped)",
         "sonde d'ambiance figée (mesure ignorée)": "room sensor frozen (sample skipped)",
+        "collecte (sonde de référence)": "collecting (reference sensor)",
         "collecte": "collecting",
         "chauffage inactif (mesure ignorée)": "heating not running (sample skipped)",
         "en attente de données ({n}/{m})": "waiting for data ({n}/{m})",
@@ -62,6 +63,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "thermostat d'ambiance à vérifier (le redémarrer s'il est éteint). Les mesures sont ignorées en attendant.":
             "Room temperature stuck at {v} °C for {h} h while the burner started {n} times: check the room "
             "thermostat (restart it if it is off). Samples are skipped meanwhile.",
+        "Sonde d'ambiance à {a} °C, sonde de référence à {b} °C depuis {n} min : thermostat d'ambiance à vérifier. "
+        "La sonde de référence prend le relais pour les mesures.":
+            "Room sensor at {a} °C, reference sensor at {b} °C for {n} min: check the room thermostat. "
+            "The reference sensor takes over for samples.",
+        "Surchauffe ({r} °C mesurés par la sonde de référence) avec une sonde d'ambiance défaillante : "
+        "consignes de la chaudière abaissées à {s} °C jusqu'au retour de la sonde.":
+            "Overheating ({r} °C on the reference sensor) with a faulty room sensor: boiler setpoints lowered "
+            "to {s} °C until the sensor recovers.",
         "Cycles courts : {a} démarrages en {b} h, {c} min de flamme en moyenne par démarrage.":
             "Short cycling: {a} burner starts in {b} h, {c} min of flame per start on average.",
         "La pression baisse lentement ({t} bar/semaine sur 4 semaines) : petite fuite ou vase d'expansion à vérifier.":

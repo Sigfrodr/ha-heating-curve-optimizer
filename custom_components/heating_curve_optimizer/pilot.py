@@ -374,7 +374,7 @@ class HeatingPilot:
         if not log or log[-1][1] != decision.mode or log[-1][2] != decision.setpoint or now - log[-1][0] > 1800:
             log.append([now, decision.mode, decision.setpoint])
             self.o.data["decision_log"] = [x for x in log if x[0] >= now - 2 * 86400]
-        if self.mode == "active":
+        if self.mode == "active" and not self.o.data.get("failsafe"):  # sécurité sonde : ne pas remonter
             await self._async_apply(decision.setpoint, now)
             await self._async_apply_rooms(rooms_plan, now)
         self.o._save()

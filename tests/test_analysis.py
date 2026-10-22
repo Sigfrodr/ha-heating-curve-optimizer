@@ -11,6 +11,7 @@ from analysis import (  # noqa: E402
     drop_frozen_samples,
     effective_error,
     evaluate_alerts,
+    failsafe_action,
     find_recoveries,
     recovery_advice,
     room_frozen,
@@ -131,3 +132,16 @@ def test_drop_frozen_samples():
     assert drop_frozen_samples(ok + frozen + after) == ok + after
     short = [{"t": i * 600, "room": 21.0} for i in range(15)]  # 2 h 20 stable : normal
     assert drop_frozen_samples(short) == short
+
+
+def test_failsafe_action():
+    # sonde figée, pièce à 22,6 pour 21 de consigne : on abaisse
+    assert failsafe_action(False, True, 22.6, 21) == "engage"
+    assert failsafe_action(False, True, 22.4, 21) is None
+    assert failsafe_action(False, False, 24, 21) is None  # sonde saine : la chaudière régule seule
+    assert failsafe_action(False, True, None, 21) is None
+    # abaissé : on garde tant que la pièce n'est pas redescendue sous la consigne
+    assert failsafe_action(True, True, 21.0, 21) is None
+    assert failsafe_action(True, True, 20.5, 21) == "release"
+    assert failsafe_action(True, False, 23, 21) == "release"  # sonde repartie
+    assert failsafe_action(True, True, None, 21) == "release"  # référence muette : on rend la main

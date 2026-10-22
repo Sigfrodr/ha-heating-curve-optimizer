@@ -36,6 +36,9 @@ from .const import (
     CONF_OUTSIDE,
     CONF_PROGRAMS,
     CONF_ROOM,
+    CONF_ROOM_REFERENCE,
+    CONF_ROOM_REFERENCE_OFFSET,
+    CONF_STANDBY_TEMP,
     CONF_ROOMS,
     CONF_SAMPLE_MINUTES,
     CONF_SETTLE_MINUTES,
@@ -66,8 +69,11 @@ from .analysis import (
     RoomReading,
     burner_stats,
     effective_error,
+    DIVERGENCE_K,
+    DIVERGENCE_MINUTES,
     drop_frozen_samples,
     evaluate_alerts,
+    failsafe_action,
     room_frozen,
     find_recoveries,
     recovery_advice,
@@ -99,6 +105,7 @@ SHIFT_RETRY_SECONDS = 300
 HEATING_FILTER_VERSION = 2
 DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
 HEATING_RECENT_SECONDS = 3600
+REFERENCE_MAX_AGE = 3 * 3600  # un détecteur de fumée ne publie parfois sa température que toutes les 3 h
 # radiateur électrique à fil pilote : modes qui chauffent, mis en arrêt pendant que le chauffage gaz tourne
 ELECTRIC_HOLD_MODES = ("comfort", "comfort_-1", "comfort_-2", "eco")
 DRYING_HUMIDITY = 80.0  # au-dessus : séchage après douche, l'électrique garde la main
@@ -277,6 +284,7 @@ class HeatingCurveOptimizer:
         state = self.hass.states.get(self.cfg[CONF_CLIMATE])
         room = self._room_temperature(state)
         self._watch_room(room)
+        await self._async_failsafe(state)
         await self._async_monitor(state)
         if state is None or state.state == "unavailable":
             self._set_status("climate indisponible")
@@ -288,6 +296,11 @@ class HeatingCurveOptimizer:
             target = self._program_temperature(program)
         outside_state = self.hass.states.get(self.cfg[CONF_OUTSIDE])
         outside = _float(outside_state.state) if outside_state else None
+        if self.data.get("failsafe"):
+            target = self.data["failsafe"]["target"]  # consigne réelle, pas la consigne abaissée
+        source = None
+        if self.room_faulty and (ref := self._reference_room()) is not None:
+            room, source = ref, "ref"  # sonde d'ambiance défaillante : la référence prend le relais
 
         now = time.time()
         # Régime mémorisé : un redémarrage de HA ou un rechargement ne relance pas la stabilisation.
@@ -308,7 +321,7 @@ class HeatingCurveOptimizer:
             status = f"programme {program} non surveillé"
         elif target is None or outside is None or (room is None and multi is None):
             status = "mesure manquante"
-        elif self.data.get("room_frozen"):
+        elif self.room_faulty and source is None:
             status = "sonde d'ambiance figée (mesure ignorée)"
         elif outside >= float(self.cfg[CONF_HEATING_LIMIT]):
             status = f"T° ext. ≥ {float(self.cfg[CONF_HEATING_LIMIT]):g} °C"
@@ -327,9 +340,11 @@ class HeatingCurveOptimizer:
             sample = {"t": now, "outside": outside, "room": room, "target": target}
             if multi is not None:
                 sample["eff"], sample["lim"] = round(multi[0], 2), multi[1]
+            if source:
+                sample["src"] = source
             self.data["samples"] = [s for s in self.data["samples"] if s["t"] >= cutoff] + [sample]
             self._save()
-            status = "collecte"
+            status = "collecte (sonde de référence)" if source else "collecte"
         self._set_status(status)
 
     def _room_temperature(self, climate_state) -> float | None:
@@ -340,33 +355,94 @@ class HeatingCurveOptimizer:
             return None
         return _float(climate_state.attributes.get("room_temperature"))
 
+    def _reference_raw(self) -> float | None:
+        """Sonde de référence telle quelle, si son dernier relevé a moins de 3 h."""
+        entity = self.cfg.get(CONF_ROOM_REFERENCE)
+        st = self.hass.states.get(entity) if entity else None
+        value = _float(st.state) if st else None
+        if value is None or time.time() - getattr(st, "last_reported", st.last_updated).timestamp() > REFERENCE_MAX_AGE:
+            return None
+        return value
+
+    def _reference_room(self) -> float | None:
+        """Sonde de référence ramenée à la sonde d'ambiance (écart habituel retiré)."""
+        raw = self._reference_raw()
+        return None if raw is None else round(raw - float(self.cfg.get(CONF_ROOM_REFERENCE_OFFSET) or 0), 2)
+
+    @property
+    def room_faulty(self) -> bool:
+        return bool(self.data.get("room_frozen") or self.data.get("room_diverging"))
+
     def _watch_room(self, room: float | None) -> None:
-        """Sonde d'ambiance figée : même valeur pendant des heures alors que le brûleur démarre.
+        """Sonde d'ambiance défaillante : figée (même valeur des heures alors que le brûleur démarre),
+        ou en désaccord avec la sonde de référence.
 
         La chaudière croit alors la pièce sous la consigne et chauffe sans fin ; les mesures collectées
-        depuis le dernier changement de valeur sont fausses et retirées.
+        depuis le début du problème sont fausses et retirées.
         """
         if room is None:
             return
         now = time.time()
+        was_faulty = self.room_faulty
         starts = self._entity_float(self._device_entity("sensor", "burner_starts"))
         watch = self.data.get("room_watch")
         if not watch or watch["value"] != room:
-            self.data["room_watch"] = {"value": room, "since": now, "starts": starts}
-            if self.data.get("room_frozen"):
-                self.data["room_frozen"] = None
-                self._save()
-            return
+            watch = self.data["room_watch"] = {"value": room, "since": now, "starts": starts}
+            self.data["room_frozen"] = None
         if watch.get("starts") is None:
             watch["starts"] = starts
         hours = (now - watch["since"]) / 3600
         burner = starts - watch["starts"] if starts is not None and watch["starts"] is not None else None
-        if not room_frozen(hours, burner):
+        if room_frozen(hours, burner):
+            self.data["room_frozen"] = [room, hours, int(burner)]
+
+        ref = self._reference_room()
+        if ref is not None:  # sans relevé récent de la référence : état inchangé
+            if abs(room - ref) <= DIVERGENCE_K:
+                self.data["room_diverge_since"] = None
+            elif not self.data.get("room_diverge_since"):
+                self.data["room_diverge_since"] = now
+        since = self.data.get("room_diverge_since")
+        minutes = (now - since) / 60 if since else 0
+        if ref is not None and since and minutes >= DIVERGENCE_MINUTES:
+            self.data["room_diverging"] = [room, self._reference_raw(), minutes]
+        elif ref is not None or not since:
+            self.data["room_diverging"] = None
+
+        if self.room_faulty and not was_faulty:
+            starts_at = [t for t in (watch["since"] if self.data.get("room_frozen") else None, since) if t]
+            start = min(starts_at) if starts_at else now
+            self.data["samples"] = [s for s in self.data["samples"] if s["t"] < start or s.get("src")]
+        if self.room_faulty or was_faulty:
+            self._save()
+
+    async def _async_failsafe(self, climate_state) -> None:
+        """Consignes abaissées pendant une surchauffe avec sonde d'ambiance défaillante."""
+        failsafe = self.data.get("failsafe")
+        if climate_state is None or climate_state.state in ("unavailable", "off"):
             return
-        if not self.data.get("room_frozen"):
-            self.data["samples"] = [s for s in self.data["samples"] if s["t"] < watch["since"]]
-        self.data["room_frozen"] = [room, hours, int(burner)]
-        self._save()
+        attrs = climate_state.attributes
+        target = failsafe["target"] if failsafe else _float(attrs.get("temperature"))
+        if target is None:
+            target = self._program_temperature(str(attrs.get("active_vicare_program", "")))
+        action = failsafe_action(bool(failsafe), self.room_faulty, self._reference_room(), target)
+        if action == "engage":
+            numbers = [e for k in ("comfort", "normal") if (e := self._device_entity("number", f"{k}_temperature"))]
+            low = self._entity_float(self._device_entity("number", "reduced_temperature"))
+            low = low if low is not None else float(self.cfg[CONF_STANDBY_TEMP])
+            originals = {e: v for e in numbers if (v := self._entity_float(e)) is not None and v > low}
+            self.data["failsafe"] = {"target": target, "setpoint": low, "originals": originals, "since": time.time()}
+            self._save()
+            for entity in originals:
+                await self._async_set_number(entity, low)
+            _LOGGER.warning("Sonde d'ambiance défaillante et surchauffe : consignes %s abaissées à %s °C", originals, low)
+        elif action == "release":
+            for entity, value in failsafe["originals"].items():
+                if self._entity_float(entity) != value:
+                    await self._async_set_number(entity, value)
+            self.data["failsafe"] = None
+            self._save()
+            _LOGGER.warning("Sécurité sonde d'ambiance levée : consignes rendues %s", failsafe["originals"])
 
     def _heating_gas_entity(self) -> str | None:
         return self._device_entity("sensor", "gas_summary_consumption_heating_currentday")
@@ -512,6 +588,9 @@ class HeatingCurveOptimizer:
                 burner=self.burner,
                 short_cycle_minutes=float(self.cfg[CONF_SHORT_CYCLE_MINUTES]),
                 room_frozen=tuple(self.data["room_frozen"]) if self.data.get("room_frozen") else None,
+                room_diverging=tuple(self.data["room_diverging"]) if self.data.get("room_diverging") else None,
+                failsafe=(self._reference_raw(), self.data["failsafe"]["setpoint"])
+                if self.data.get("failsafe") and self._reference_raw() is not None else None,
             )
         )
         alerts.update(self.data["daily_alerts"])
@@ -925,6 +1004,9 @@ class HeatingCurveOptimizer:
                     "sensor",
                     lambda st: st.attributes.get("device_class") in ("gas", "energy")
                     and st.attributes.get("state_class") in ("total", "total_increasing"),
+                ),
+                "temperature": entity_choices(
+                    "sensor", lambda st: st.attributes.get("device_class") == "temperature"
                 ),
                 "notify": sorted(s for s in self.hass.services.async_services().get("notify", {})
                                  if s.startswith("mobile_app_") or s in ("phones",)),

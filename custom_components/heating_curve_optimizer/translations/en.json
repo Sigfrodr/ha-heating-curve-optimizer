@@ -36,7 +36,9 @@
               "weather": "Weather (cloud coverage)",
               "solar_filter": "Ignore samples in strong sunshine",
               "solar_cloud_max": "Ignore below this cloud coverage",
-              "solar_min_elevation": "Ignore above this sun elevation"
+              "solar_min_elevation": "Ignore above this sun elevation",
+              "room_reference": "Reference sensor near the room sensor (cross-check, fallback)",
+              "room_reference_offset": "Usual offset reference − room sensor"
             }
           },
           "pilot": {

@@ -36,7 +36,9 @@
               "weather": "Météo (couverture nuageuse)",
               "solar_filter": "Ignorer les mesures par grand soleil",
               "solar_cloud_max": "Couverture nuageuse sous laquelle on ignore",
-              "solar_min_elevation": "Hauteur du soleil à partir de laquelle on ignore"
+              "solar_min_elevation": "Hauteur du soleil à partir de laquelle on ignore",
+              "room_reference": "Sonde de référence près de la sonde d'ambiance (contrôle croisé, secours)",
+              "room_reference_offset": "Écart habituel référence − sonde d'ambiance"
             }
           },
           "pilot": {
