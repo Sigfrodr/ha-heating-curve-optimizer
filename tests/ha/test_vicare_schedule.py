@@ -70,7 +70,8 @@ async def test_dhw_schedule_roundtrip(hass: HomeAssistant, vicare):
             "maxEntries": 2, "resolution": 10, "modes": ["on"], "defaultMode": "off"}}}}},
     }
     vicare_entry = hass.config_entries.async_entries("vicare")[0]
-    vicare_entry.runtime_data = SimpleNamespace(devices=[SimpleNamespace(api=SimpleNamespace(service=service))])
+    # PyViCare ≥ 2.5x : l'appareil expose getProperty(prop), son service partagé veut (accessor, prop)
+    vicare_entry.runtime_data = SimpleNamespace(devices=[SimpleNamespace(api=service)])
     entry = await _pilot_entry(hass, rooms_demand=True)
     optimizer = entry.runtime_data
     assert (await optimizer.async_dhw_schedule())["current"]["mon"][0]["end"] == "23:30"

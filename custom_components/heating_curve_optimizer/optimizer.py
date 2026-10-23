@@ -1639,11 +1639,19 @@ class HeatingCurveOptimizer:
     # ---------------------------------------------------- planning de la chaudière
 
     def _vicare_schedule_access(self) -> tuple[list, str]:
-        """Services PyViCare de l'intégration ViCare déjà connectée, et propriété du planning du circuit."""
+        """Appareils PyViCare de l'intégration ViCare déjà connectée, et propriété du planning du circuit.
+
+        PyViCare ≥ 2.5x (HA 2026.10) : le service est partagé par passerelle et prend l'appareil en
+        argument (getProperty(accessor, prop)) ; c'est l'appareil (d.api) qui expose getProperty(prop).
+        Avant, seul le service, propre à chaque appareil, l'exposait."""
         vicare = self._vicare_entry()
         data = getattr(vicare, "runtime_data", None) if vicare else None
-        services = [s for d in getattr(data, "devices", None) or []
-                    if (s := getattr(getattr(d, "api", None), "service", None)) is not None]
+        services = []
+        for d in getattr(data, "devices", None) or []:
+            api = getattr(d, "api", None)
+            target = api if hasattr(api, "getProperty") else getattr(api, "service", None)
+            if target is not None:
+                services.append(target)
         climate = er.async_get(self.hass).async_get(self.cfg[CONF_CLIMATE])
         circuit = climate.unique_id.rsplit("-", 1)[-1] if climate and climate.unique_id else "0"
         return services, f"heating.circuits.{circuit if circuit.isdigit() else '0'}.heating.schedule"
@@ -1656,7 +1664,8 @@ class HeatingCurveOptimizer:
             for service in services:
                 try:
                     feature = service.getProperty(prop)
-                except Exception:  # noqa: BLE001 — appareil sans ce planning
+                except Exception as err:  # noqa: BLE001 — appareil sans ce planning
+                    _LOGGER.debug("Planning %s illisible sur %s : %r", prop, service, err)
                     continue
                 if feature and "entries" in (feature.get("properties") or {}):
                     return service, feature
