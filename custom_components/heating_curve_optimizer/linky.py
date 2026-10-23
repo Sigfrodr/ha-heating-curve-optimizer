@@ -28,6 +28,7 @@ HISTORY_DAYS = 3 * 365  # Enedis garde 3 ans de relevés journaliers
 CHUNK_DAYS = 365  # période maximale par appel
 CURVE_CHUNK_DAYS = 7  # courbe de charge : une semaine au plus par appel
 CURVE_FIRST_DAYS = 28  # premier import : 4 appels, pour ménager le quota Enedis
+PUBLICATION_LAG_DAYS = 2  # un 404 sur les 2 derniers jours = relevé pas encore publié, pas une erreur
 
 
 class LinkyError(Exception):
@@ -187,6 +188,10 @@ class LinkyImporter:
             try:
                 points += await self.async_fetch(start, end)
             except LinkyError as err:
+                # Veille pas encore publiée (Enedis la met en ligne dans la matinée) : 404, rien à importer
+                if err.status == 404 and start >= today - timedelta(days=PUBLICATION_LAG_DAYS):
+                    _LOGGER.debug("Période %s → %s pas encore publiée : %s", start, end, err)
+                    break
                 # Historique initial : les périodes antérieures au compteur ou à l'accord sont refusées
                 if err.status in (401, 403) or rows or end >= today:
                     raise

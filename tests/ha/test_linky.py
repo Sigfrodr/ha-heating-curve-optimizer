@@ -89,6 +89,27 @@ async def test_import_history_then_daily(hass: HomeAssistant, aioclient_mock):
     assert result["imported"] == 0 and not aioclient_mock.mock_calls  # rien de nouveau avant demain
 
 
+async def test_yesterday_not_published_yet(hass: HomeAssistant, aioclient_mock):
+    """Juste après minuit, la veille n'est pas encore publiée : Enedis répond 404, ce n'est pas une erreur."""
+    today = dt_util.now().date()
+    two_days = today - timedelta(days=2)
+    for a, b in chunks(today - timedelta(days=3 * 365), today):
+        pts = [{"v": "5000", "d": two_days.isoformat()}] if a <= two_days < b else []
+        aioclient_mock.get(API_URL, params={"dateDebut": a.isoformat(), "dateFin": b.isoformat(), "pointId": PRM},
+                           json={"grandeur": [{"unite": "Wh", "points": pts}]})
+    importer = LinkyImporter(hass, "heating_curve_optimizer", _token([PRM]))
+    await importer.async_update()
+    await async_wait_recording_done(hass)
+
+    aioclient_mock.clear_requests()
+    yesterday = today - timedelta(days=1)
+    aioclient_mock.get(API_URL, params={"dateDebut": yesterday.isoformat(), "dateFin": today.isoformat(), "pointId": PRM},
+                       status=404, text='{"status":404,"error":{"error_description":"La sous-ressource demandée n existe pas."}}')
+    result = await importer.async_update()
+    assert result["imported"] == 0 and result["last_day"] == two_days.isoformat()
+    assert len(aioclient_mock.mock_calls) == 1
+
+
 async def test_rejected_token_is_reported(hass: HomeAssistant, aioclient_mock):
     from custom_components.heating_curve_optimizer.linky import LinkyError
 
