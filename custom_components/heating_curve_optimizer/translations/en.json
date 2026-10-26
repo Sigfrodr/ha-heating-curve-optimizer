@@ -108,7 +108,7 @@
             "data": {
               "settle_minutes": "Settling time after a program / setpoint / curve change",
               "sample_minutes": "Sampling interval",
-              "min_samples": "Minimum samples before evaluating",
+              "min_samples": "Samples before evaluating (from 24 if the deviation is already stable)",
               "max_age_days": "Sample retention",
               "damping": "Share of the correction applied",
               "max_shift_step": "Max shift change per adjustment",

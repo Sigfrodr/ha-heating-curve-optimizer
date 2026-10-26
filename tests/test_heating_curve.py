@@ -8,6 +8,7 @@ from heating_curve import (  # noqa: E402
     Sample,
     Settings,
     compute_proposal,
+    decision_settled,
     room_gain,
     supply_temperature,
 )
@@ -90,3 +91,28 @@ def test_current_value_outside_limits_does_not_jump():
 def test_no_data():
     p = compute_proposal([], 1.4, 0)
     assert not p.changed
+
+
+def test_damping_does_not_block_one_step():
+    # Relevé réel du 26/10 : +0,57 K en moyenne, la moitié de la correction (−0,38 K) s'arrondissait à 0
+    bins = [(4.2, 0.3, 3), (6.5, 0.1, 4), (7.7, 0.5, 4), (9.7, 0.7, 3), (10.4, 0.7, 6),
+            (11.4, 0.4, 8), (12.7, 0.8, 10), (13.2, 0.6, 4), (14.7, 1.0, 15)]
+    samples = [Sample(outside=o, room=TARGET + e, target=TARGET) for o, e, n in bins for _ in range(n)]
+    s = Settings(shift_min=-13, shift_max=40, slope_min=0.2, slope_max=3.5)
+    p = compute_proposal(samples, 0.3, 23, s)
+    # surchauffe plus forte par temps doux : la pente monte d'un cran, le décalage compense
+    assert p.new_slope == 0.4 and p.new_shift == 21
+    # après ce cran, l'écart résiduel (< ½ cran) ne déclenche plus rien : pas d'oscillation
+    samples = [Sample(outside=o, room=TARGET + 0.32, target=TARGET) for o, _, n in bins for _ in range(n)]
+    assert not compute_proposal(samples, 0.4, 21, s).changed
+
+
+def test_decision_settled():
+    hour = 3600
+    steady = [(h * hour + m * 600, 0.6 + (m % 2) * 0.05) for h in range(8) for m in range(3)]
+    assert decision_settled(steady, 0.3)
+    assert not decision_settled(steady[:12], 0.3)  # 4 heures seulement
+    noisy = [(h * hour, 0.3 + (1.0 if h % 2 else -1.0)) for h in range(8)]
+    assert not decision_settled(noisy, 0.3)
+    fine = [(h * hour, 0.05 * (h % 3)) for h in range(8)]
+    assert decision_settled(fine, 0.3)

@@ -108,7 +108,7 @@
             "data": {
               "settle_minutes": "Stabilisation après changement de programme / consigne / courbe",
               "sample_minutes": "Intervalle de mesure",
-              "min_samples": "Échantillons minimum avant évaluation",
+              "min_samples": "Échantillons avant évaluation (dès 24 si l'écart est déjà stable)",
               "max_age_days": "Durée de conservation des mesures",
               "damping": "Part de la correction appliquée",
               "max_shift_step": "Variation max du décalage par ajustement",

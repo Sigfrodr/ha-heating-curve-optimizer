@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from statistics import median
+from statistics import median, stdev
 
 
 def curve_term(dar: float) -> float:
@@ -111,6 +111,36 @@ def _round_to(value: float, step: float) -> float:
     return round(round(value / step) * step, 6)
 
 
+def _rounded(current: float, damped: float, full: float, step: float, lo: float, hi: float) -> float:
+    """Nouvelle valeur au cran du régulateur.
+
+    L'amortissement ne doit pas bloquer une correction qui vaut au moins un cran : sans ce plancher,
+    un écart d'ambiance de ~0,6 K (moitié de correction < ½ cran de décalage) ne serait jamais corrigé.
+    """
+    new = _clamp(_round_to(current + damped, step), lo, hi)
+    if abs(new - current) < 1e-9 and abs(full) >= step / 2:
+        new = _clamp(_round_to(current + math.copysign(step, full), step), lo, hi)
+    return new
+
+
+def decision_settled(points: list[tuple[float, float]], deadband: float, min_blocks: int = 6) -> bool:
+    """L'écart (horodatage s, écart K) est-il assez stable pour décider sans attendre d'autres mesures ?
+
+    Les mesures successives se ressemblent (l'ambiance bouge lentement) : on raisonne sur des
+    moyennes horaires, et on décide quand ±2 erreurs-types ne font plus basculer le verdict
+    (corriger ou laisser tel quel) de part et d'autre de la tolérance.
+    """
+    blocks: dict[int, list[float]] = {}
+    for t, err in points:
+        blocks.setdefault(int(t // 3600), []).append(err)
+    means = [sum(v) / len(v) for v in blocks.values()]
+    if len(means) < min_blocks:
+        return False
+    mean = sum(means) / len(means)
+    margin = 2 * stdev(means) / math.sqrt(len(means))
+    return abs(mean) - margin > deadband or abs(mean) + margin < deadband
+
+
 def bin_samples(samples: list[Sample], settings: Settings) -> list[Bin]:
     groups: dict[int, list[Sample]] = {}
     for s in samples:
@@ -173,16 +203,18 @@ def compute_proposal(
 
     slope_lo = min(settings.slope_min, slope)
     slope_hi = max(settings.slope_max, slope)
-    new_slope = _clamp(_round_to(slope + d_slope, settings.slope_step), slope_lo, slope_hi)
+    full_slope = d_slope / settings.damping if settings.damping > 0 else d_slope
+    new_slope = _rounded(slope, d_slope, full_slope, settings.slope_step, slope_lo, slope_hi)
     d_slope = new_slope - slope
 
     # Le décalage compense l'effet (arrondi compris) du changement de pente
     # à la température extérieure moyenne, pour viser la bonne correction moyenne.
     d_shift = settings.damping * y_mean - d_slope * x_mean
     d_shift = _clamp(d_shift, -settings.max_shift_step, settings.max_shift_step)
+    full_shift = y_mean - d_slope * x_mean
     shift_lo = min(settings.shift_min, shift)
     shift_hi = max(settings.shift_max, shift)
-    new_shift = _clamp(_round_to(shift + d_shift, settings.shift_step), shift_lo, shift_hi)
+    new_shift = _rounded(shift, d_shift, full_shift, settings.shift_step, shift_lo, shift_hi)
 
     if fit_slope:
         reason = f"ajustement pente + décalage (amplitude ext. {spread:.1f} K)"

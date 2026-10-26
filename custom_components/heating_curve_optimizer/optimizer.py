@@ -85,7 +85,7 @@ from .analysis import (
     recovery_advice,
 )
 from .control import balance_rooms, dhw_schedule, gas_cost, thermal_balance, vicare_schedule, weekly_report
-from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal
+from .heating_curve import Proposal, Sample, Settings, bin_samples, compute_proposal, decision_settled
 from .messages import translate
 from .linky import LinkyError, LinkyImporter
 from .settings_spec import EMPTY, FIELDS, SECRETS, SECTIONS, validate
@@ -111,6 +111,7 @@ SHIFT_RETRY_SECONDS = 300
 HEATING_FILTER_VERSION = 2
 DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
 HEATING_RECENT_SECONDS = 3600
+EARLY_MIN_SAMPLES = 24  # avant le minimum réglé, on évalue dès que l'écart est stable, mais pas sous 4 h de mesures
 RESTART_OFF_SECONDS = 30  # coupure de l'alimentation : la chaudière et le Vitotrol (alimenté par le bus) repartent
 AUTO_RESTART_INTERVAL = 86400  # au plus un redémarrage automatique par jour
 RESTART_BURNER_WAIT = 1800  # attendre la fin d'un cycle brûleur, 30 min au plus
@@ -805,7 +806,12 @@ class HeatingCurveOptimizer:
             for s in self.data["samples"]
         ]
         min_samples = int(self.cfg[CONF_MIN_SAMPLES])
-        if len(samples) < min_samples:
+        settled = len(samples) >= EARLY_MIN_SAMPLES and decision_settled(
+            [(s["t"], _sample_error(s)) for s in self.data["samples"]], self.settings.deadband
+        )
+        if len(samples) < min_samples and settled:
+            _LOGGER.info("Évaluation anticipée : écart stable sur %s échantillons", len(samples))
+        elif len(samples) < min_samples:
             _LOGGER.info("Évaluation reportée : %s/%s échantillons", len(samples), min_samples)
             self._set_status(f"en attente de données ({len(samples)}/{min_samples})")
             return
