@@ -36,6 +36,7 @@ from .control import (
     decide_setpoint,
     forecast_factor,
     normalize_schedule,
+    cloud_cover_at,
     preheat_rate,
     schedule_from_trvs,
     sun_expected,
@@ -274,12 +275,26 @@ class HeatingPilot:
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Prévisions indisponibles : %s", err)
             return
-        hours = (response or {}).get(weather, {}).get("forecast", [])[:6]
+        forecast = (response or {}).get(weather, {}).get("forecast", [])
+        hours = forecast[:6]
+        # Couverture par créneau horaire (début, %), alignée sur l'heure de chaque prévision :
+        # sert au filtre solaire quand l'état de la météo n'a pas de cloud_coverage (Open-Meteo).
+        hour_ago = dt_util.utcnow() - timedelta(hours=1)
+        cloud_hours = []
+        for f in forecast:
+            start = dt_util.parse_datetime(str(f.get("datetime") or ""))
+            if start is not None and start > hour_ago and f.get("cloud_coverage") is not None:
+                cloud_hours.append([str(f["datetime"]), f["cloud_coverage"]])
         self._forecast = {
             "temps": [f.get("temperature") for f in hours if f.get("temperature") is not None],
             "clouds": [f.get("cloud_coverage") for f in hours if f.get("cloud_coverage") is not None],
+            "cloud_hours": cloud_hours[:6],
             "at": time.time(),
         }
+
+    def cloud_cover_now(self) -> float | None:
+        """Couverture nuageuse prévue pour l'heure en cours (ou la suivante), None si inconnue."""
+        return cloud_cover_at(self._forecast.get("cloud_hours") or [], dt_util.utcnow())
 
     # ----------------------------------------------------------- boucle de décision
 

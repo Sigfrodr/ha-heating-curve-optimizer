@@ -654,7 +654,11 @@ class HeatingCurveOptimizer:
         if elevation is None or elevation < float(self.cfg[CONF_SOLAR_MIN_ELEVATION]):
             return False
         cloud = _float(weather.attributes.get("cloud_coverage")) if weather else None
-        return cloud is None or cloud < float(self.cfg[CONF_SOLAR_CLOUD_MAX])
+        if cloud is None:  # état sans couverture (Open-Meteo) : prévision horaire de l'heure en cours
+            cloud = self.pilot.cloud_cover_now()
+        # Couverture inconnue (ni état ni prévision) : pas d'apport solaire retenu, la mesure est gardée.
+        # L'écarter excluait toutes les mesures de jour avec une météo sans cloud_coverage.
+        return cloud is not None and cloud < float(self.cfg[CONF_SOLAR_CLOUD_MAX])
 
     # ------------------------------------------------- surveillance chaudière
 

@@ -4,8 +4,11 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "custom_components", "heating_curve_optimizer"))
 
 from analysis import Recovery  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
 from control import (  # noqa: E402
     ControlInputs,
+    cloud_cover_at,
     balance_rooms,
     comfort_periods_from_trv,
     decide_setpoint,
@@ -109,6 +112,21 @@ def test_forecast_factor_and_sun():
     assert sun_expected(30, [10, 20])
     assert not sun_expected(30, [80, 90])
     assert not sun_expected(5, [0])
+
+
+def test_cloud_cover_at_uses_forecast_times_not_rank():
+    now = datetime(2026, 10, 27, 13, 20, tzinfo=timezone.utc)
+    hours = [["2026-10-27T11:00:00+00:00", 5], ["2026-10-27T12:00:00+00:00", 10],
+             ["2026-10-27T13:00:00+00:00", 75], ["2026-10-27T14:00:00+00:00", 20]]
+    assert cloud_cover_at(hours, now) == 75  # créneau 13 h, pas le premier de la liste
+    # heure en cours sans valeur → heure suivante (heures locales en +01:00)
+    hours = [["2026-10-27T14:00:00+01:00", None], ["2026-10-27T15:00:00+01:00", 40]]
+    assert cloud_cover_at(hours, now) == 40
+    # prévision trop ancienne ou trop lointaine : rien
+    assert cloud_cover_at([["2026-10-27T08:00:00+00:00", 0]], now) is None
+    assert cloud_cover_at([["2026-10-27T16:00:00+00:00", 0]], now) is None
+    assert cloud_cover_at([], now) is None
+    assert cloud_cover_at([["n'importe quoi", 10], [None, 10]], now) is None
 
 
 def test_cost_and_thermal_balance():

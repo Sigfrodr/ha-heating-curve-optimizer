@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # import réel inutile : permet de tester ce module seul
@@ -235,6 +236,29 @@ def sun_expected(elevation: float | None, clouds_next: list[float], max_cloud: f
     if elevation is None or elevation < 15 or not clouds_next:
         return False
     return sum(clouds_next) / len(clouds_next) < max_cloud
+
+
+def cloud_cover_at(hours: list, now: datetime) -> float | None:
+    """Couverture nuageuse (%) de l'heure en cours, sinon de la suivante, d'une prévision horaire
+    [(début du créneau, %)]. Créneaux repérés par leur heure de début, jamais par leur rang :
+    la prévision peut commencer avant l'heure en cours ou dater de la dernière actualisation."""
+    hour = timedelta(hours=1)
+    best = None
+    for start, cloud in hours:
+        if cloud is None or start is None:
+            continue
+        try:
+            start = start if isinstance(start, datetime) else datetime.fromisoformat(str(start))
+            cloud = float(cloud)
+        except (TypeError, ValueError):
+            continue
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if start <= now < start + hour:
+            return cloud  # heure en cours
+        if now < start <= now + hour and (best is None or start < best[0]):
+            best = (start, cloud)  # heure suivante
+    return best[1] if best else None
 
 
 # ------------------------------------------------------------------ coûts et bilan thermique
