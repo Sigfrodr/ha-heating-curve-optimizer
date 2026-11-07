@@ -10,6 +10,7 @@ from control import (  # noqa: E402
     ControlInputs,
     cloud_cover_at,
     balance_rooms,
+    boiler_room_demand,
     comfort_periods_from_trv,
     decide_setpoint,
     forecast_factor,
@@ -80,6 +81,19 @@ def test_decide_comfort_standby_reduced():
     # sans pièces configurées, jamais de veille
     assert decide_setpoint(_inputs(rooms_configured=False, any_demand=False, no_demand_minutes=99)).mode == "confort"
     assert decide_setpoint(_inputs(minute=23 * 60, room=18.8)).mode == "réduit"
+
+
+def test_boiler_room_demand():
+    # salon au confort ou un peu au-dessus : il demande encore, même si aucune tête ne chauffe
+    assert boiler_room_demand(20.9, 21.0, in_standby=False)
+    assert boiler_room_demand(21.2, 21.0, in_standby=False)
+    # surplus net (≥ 0,3 K) : la veille est permise
+    assert not boiler_room_demand(21.3, 21.0, in_standby=False)
+    # en veille : on n'en sort qu'à 0,2 K sous le confort (bande de 0,5 K)
+    assert not boiler_room_demand(20.9, 21.0, in_standby=True)
+    assert boiler_room_demand(20.7, 21.0, in_standby=True)
+    # sonde inconnue (ou défaillante sans référence) : jamais de veille à l'aveugle
+    assert boiler_room_demand(None, 21.0, in_standby=True)
 
 
 def test_decide_optimal_start():

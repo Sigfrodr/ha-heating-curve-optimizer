@@ -44,7 +44,9 @@ The pilot acts on the **active program's setpoint**, like the ViCare app. It app
 - **per-room setpoints** (comfort / reduced) following the same schedule for the selected rooms
   (Better Thermostat): one schedule for the whole house;
 - **demand-based standby**: during comfort periods, standby setpoint (15 °C by default) once no room has
-  called for heat for 20 min, immediate return as soon as a room calls for heat;
+  called for heat for 20 min, immediate return as soon as a room calls for heat; the room holding the boiler's
+  sensor counts too: standby only once it is 0.3 K above comfort, back to comfort 0.2 K below it (unknown or
+  faulty sensor without a reference = calls for heat);
 - **optimal start**: recovery speed learned from past mornings, corrected by the **weather forecast**
   (colder forecast → earlier start);
 - **solar anticipation**: setpoint lowered by 1 °C when strong sunshine is forecast.

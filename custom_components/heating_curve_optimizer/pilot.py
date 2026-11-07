@@ -33,6 +33,7 @@ from .control import (
     DEFAULT_SCHEDULE,
     ControlDecision,
     ControlInputs,
+    boiler_room_demand,
     decide_setpoint,
     forecast_factor,
     normalize_schedule,
@@ -306,6 +307,17 @@ class HeatingPilot:
         if was != now:
             self.hass.async_create_task(self.async_tick())
 
+    def _boiler_room(self) -> float | None:
+        """Température de la pièce de la sonde de la chaudière (référence si la sonde est défaillante)."""
+        if self.o.room_faulty:
+            return self.o._reference_room()
+        climate = self.hass.states.get(self.o.cfg[CONF_CLIMATE])
+        if climate is None:
+            return None
+        from .optimizer import _float  # noqa: PLC0415
+
+        return _float(climate.attributes.get("room_temperature"))
+
     def _any_demand(self) -> tuple[bool, bool]:
         rooms = self.o.cfg.get(CONF_ROOMS) or []
         demand = False
@@ -313,6 +325,9 @@ class HeatingPilot:
             st = self.hass.states.get(entity_id)
             if st and st.state not in ("off", "unavailable") and st.attributes.get("hvac_action") == "heating":
                 demand = True
+        if rooms and not demand:
+            in_standby = (self.o.data["control_state"] or {}).get("mode") == "veille"
+            demand = boiler_room_demand(self._boiler_room(), self.temps["comfort"], in_standby)
         return bool(rooms), demand
 
     def decide(self):

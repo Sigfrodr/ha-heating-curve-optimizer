@@ -45,7 +45,9 @@ Le pilote agit sur la **consigne du programme actif**, comme l'appli ViCare. Il 
 - les **consignes de chaque pièce** (confort / réduit) qui suivent ce même planning, pour les pièces cochées
   (Better Thermostat) : un seul planning pour toute la maison ;
 - la **veille sur demande** : en période confort, consigne de veille (15 °C par défaut) quand aucune pièce
-  ne demande de chaleur depuis 20 min, retour immédiat dès qu'une pièce réclame ;
+  ne demande de chaleur depuis 20 min, retour immédiat dès qu'une pièce réclame ; la pièce de la sonde de la
+  chaudière compte aussi : veille seulement si elle dépasse le confort de 0,3 K, sortie à 0,2 K sous le confort
+  (sonde inconnue ou défaillante sans référence = demande) ;
 - la **relance optimale** : vitesse de remontée apprise sur les relances passées, corrigée par la
   **prévision météo** (froid annoncé → relance plus tôt) ;
 - l'**anticipation solaire** : consigne baissée d'1 °C quand un soleil franc est prévu.

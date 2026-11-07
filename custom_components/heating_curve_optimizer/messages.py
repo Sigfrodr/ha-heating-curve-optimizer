@@ -105,7 +105,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "relance anticipée : {a} min de chauffe estimées, confort dans {b} min":
             "early start: {a} min of heating estimated, comfort in {b} min",
         "période réduite du planning": "reduced period of the schedule",
-        "aucune pièce ne demande de chaleur depuis {n} min": "no room has called for heat for {n} min",
+        "aucune pièce (sonde de la chaudière comprise) ne demande de chaleur depuis {n} min":
+            "no room (boiler sensor included) has called for heat for {n} min",
         "soleil franc attendu : on le laisse chauffer": "strong sun expected: letting it heat the house",
         "période confort du planning": "comfort period of the schedule",
         "chaudière à l'arrêt (vacances ou veille) : pilotage en pause":

@@ -190,6 +190,26 @@ class ControlDecision:
     reason: str
 
 
+# Pièce de la sonde de la chaudière : veille seulement sur un surplus net, sortie un peu sous le confort.
+# Bande de 0,5 K (règle empirique) : quelques veilles de 2-3 h par jour plutôt qu'un tout-ou-rien au 0,1 K
+# qui userait le budget d'écritures ViCare.
+STANDBY_ENTRY_MARGIN = 0.3  # K au-dessus du confort pour accepter la veille
+STANDBY_EXIT_MARGIN = 0.2  # K sous le confort pour en sortir
+
+
+def boiler_room_demand(room: float | None, comfort: float, in_standby: bool) -> bool:
+    """La pièce de la sonde de la chaudière (sans tête thermostatique) demande-t-elle de la chaleur ?
+
+    Sans elle, la veille coupait le salon dès que les chambres (en réduit le jour) et la cuisine
+    ne demandaient rien. Sonde inconnue : on la considère demandeuse (jamais de veille à l'aveugle).
+    """
+    if room is None:
+        return True
+    if in_standby:
+        return room < comfort - STANDBY_EXIT_MARGIN
+    return room < comfort + STANDBY_ENTRY_MARGIN
+
+
 def decide_setpoint(i: ControlInputs) -> ControlDecision:
     if not in_comfort(i.schedule, i.weekday, i.minute):
         wait = minutes_to_next_comfort(i.schedule, i.weekday, i.minute, horizon=360)
@@ -205,7 +225,7 @@ def decide_setpoint(i: ControlInputs) -> ControlDecision:
     if i.rooms_configured and not i.any_demand and i.no_demand_minutes >= i.demand_delay_minutes:
         return ControlDecision(
             i.standby_temp, "veille",
-            f"aucune pièce ne demande de chaleur depuis {i.no_demand_minutes:.0f} min",
+            f"aucune pièce (sonde de la chaudière comprise) ne demande de chaleur depuis {i.no_demand_minutes:.0f} min",
         )
     if i.sun_expected:
         return ControlDecision(i.comfort_temp - 1, "soleil", "soleil franc attendu : on le laisse chauffer")
