@@ -79,7 +79,7 @@ Safeguards: at least 5 min between writes, at most 48 boiler writes per day.
 ## Monitoring and diagnostics
 
 - **Alerts** (`binary_sensor` + notification): low pressure, unreachable boiler, frost protection, short
-  cycling, **frozen room sensor** (same value for 4 h while the burner keeps starting: samples skipped and
+  cycling, **frozen room sensor** (same value for 3 h while the burner keeps starting: samples skipped and
   removed) or **disagreeing with a reference sensor** (> 1 K for 1 h; the reference then takes over for samples,
   and on 1.5 K overheating the comfort/normal setpoints drop to reduced until the sensor recovers). With a **smart plug on the boiler power supply**: "Restart boiler" button (also
   in the notification), optional automatic restart (at most once a day, after the burner cycle) and the boiler's

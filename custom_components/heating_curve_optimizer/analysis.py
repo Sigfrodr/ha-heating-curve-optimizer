@@ -132,7 +132,7 @@ def evaluate_alerts(i: AlertInputs) -> dict[str, str]:
 
 # ------------------------------------------------------------------ sonde d'ambiance figée
 
-FROZEN_ROOM_HOURS = 4.0
+FROZEN_ROOM_HOURS = 3.0  # en chauffe (≥ 3 démarrages), la sonde n'est jamais restée figée 2,5 h (22/10–07/11/2026)
 FROZEN_ROOM_STARTS = 3
 
 

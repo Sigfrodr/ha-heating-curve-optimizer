@@ -110,10 +110,12 @@ def test_recovery_uses_setpoint_of_the_time():
 def test_room_frozen_needs_time_and_burner_starts():
     # 22/10/2026 : Vitotrol figé à 20,8 °C, le brûleur a démarré toutes les heures
     assert room_frozen(4.0, 4)
+    assert room_frozen(3.0, 3)
     # nuit ou mi-saison : valeur stable près de 5 h sans démarrage du brûleur
     assert not room_frozen(4.8, 0)
-    # en chauffe, une valeur reste stable un peu plus de 3 h au plus
-    assert not room_frozen(3.2, 4)
+    # en chauffe, une valeur reste stable 2,4 h au plus (relevés du 31/10 au 07/11/2026)
+    assert not room_frozen(2.5, 4)
+    assert not room_frozen(3.0, 2)
     assert not room_frozen(10, None)
 
 
