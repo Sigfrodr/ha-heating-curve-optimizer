@@ -56,6 +56,10 @@ def test_overconsumption():
     assert overconsumption(100, 60) == (100 / 60 - 1) * 100
     assert overconsumption(70, 60) is None  # sous le seuil de 30 %
     assert overconsumption(8, 4) is None  # écart absolu trop faible
+    # près du seuil de chauffe (prévision ≈ 0), le rapport ne veut rien dire : écart absolu double
+    assert overconsumption(12.5, 3.8) is None  # relevé du 09/11/2026, « +231 % »
+    assert overconsumption(20, 4) is not None
+    assert overconsumption(37.6, 26.7) is not None
 
 
 def test_pressure_trend_and_leak():

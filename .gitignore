@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 .claude/settings.local.json
+
+# revues périodiques : données du foyer, hors dépôt public
+docs/revues/

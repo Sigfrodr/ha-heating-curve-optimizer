@@ -8,6 +8,7 @@ from analysis import (  # noqa: E402
     BurnerStats,
     RoomReading,
     burner_stats,
+    catch_up_since,
     drop_frozen_samples,
     effective_error,
     evaluate_alerts,
@@ -147,3 +148,18 @@ def test_failsafe_action():
     assert failsafe_action(True, True, 20.5, 21) == "release"
     assert failsafe_action(True, False, 23, 21) == "release"  # sonde repartie
     assert failsafe_action(True, True, None, 21) == "release"  # référence muette : on rend la main
+
+
+def test_catch_up_after_room_target_rise():
+    settle = 7200
+    assert catch_up_since(None, 17, 17.5, 0, settle) is None  # première lecture
+    # planning 17 → 19,5 °C : la pièce est en rattrapage, quelle que soit la courbe
+    assert catch_up_since((17, None), 19.5, 17.6, 1000, settle) == 1000
+    assert catch_up_since((19.5, 1000), 19.5, 18.9, 4000, settle) == 1000
+    # consigne atteinte, consigne redescendue ou délai dépassé : la pièce compte de nouveau
+    assert catch_up_since((19.5, 1000), 19.5, 19.5, 4000, settle) is None
+    assert catch_up_since((19.5, 1000), 17, 18.9, 4000, settle) is None
+    assert catch_up_since((19.5, 1000), 19.5, 18.9, 1000 + settle, settle) is None
+    # petite retouche de consigne, ou hausse alors que la pièce est déjà assez chaude
+    assert catch_up_since((19, None), 19.3, 18.5, 1000, settle) is None
+    assert catch_up_since((17, None), 19, 19.4, 1000, settle) is None

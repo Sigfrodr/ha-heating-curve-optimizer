@@ -184,20 +184,23 @@ def compute_proposal(
     if max(abs(b.error) for b in bins) < settings.deadband:
         return keep("écart dans la tolérance", mean_error)
 
-    # Chaque tranche pèse pareil, pour ne pas laisser les températures
-    # extérieures les plus fréquentes dominer l'ajustement.
+    # Chaque tranche pèse comme la racine de son effectif : les températures extérieures les plus
+    # fréquentes ne dominent pas l'ajustement, mais une tranche de 3 mesures (une après-midi douce
+    # isolée) ne pèse plus autant qu'une tranche de 100.
+    ws = [math.sqrt(b.count) for b in bins]
+    w_sum = sum(ws)
     xs = [-curve_term(b.outside - b.target) for b in bins]
     ys = [-b.error * room_gain(b.outside, b.target, slope) for b in bins]
-    x_mean = sum(xs) / len(xs)
-    y_mean = sum(ys) / len(ys)
+    x_mean = sum(w * x for w, x in zip(ws, xs)) / w_sum
+    y_mean = sum(w * y for w, y in zip(ws, ys)) / w_sum
 
     spread = max(b.outside for b in bins) - min(b.outside for b in bins)
     fit_slope = len(bins) >= 3 and spread >= settings.min_outside_spread
     d_slope = 0.0
     if fit_slope:
-        var_x = sum((x - x_mean) ** 2 for x in xs)
+        var_x = sum(w * (x - x_mean) ** 2 for w, x in zip(ws, xs))
         if var_x > 1e-9:
-            cov_xy = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys))
+            cov_xy = sum(w * (x - x_mean) * (y - y_mean) for w, x, y in zip(ws, xs, ys))
             d_slope = settings.damping * cov_xy / var_x
             d_slope = _clamp(d_slope, -settings.max_slope_step, settings.max_slope_step)
 

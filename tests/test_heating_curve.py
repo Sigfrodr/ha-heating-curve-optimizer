@@ -107,6 +107,18 @@ def test_damping_does_not_block_one_step():
     assert not compute_proposal(samples, 0.4, 21, s).changed
 
 
+def test_small_bins_weigh_less():
+    # 200 mesures justes à 5–7 °C, 2 tranches de 3 mesures à +1,5 K (une après-midi) : à poids égal
+    # par tranche, l'écart moyen valait +0,75 K et le décalage baissait d'un cran
+    bins = [(5.5, 0.0, 100), (6.5, 0.0, 100), (7.5, 1.5, 3), (8.5, 1.5, 3)]
+    samples = [Sample(outside=o, room=TARGET + e, target=TARGET) for o, e, n in bins for _ in range(n)]
+    s = Settings(shift_min=-13, shift_max=40, slope_min=0.2, slope_max=3.5)
+    assert not compute_proposal(samples, 0.4, 19, s).changed
+    # les mêmes tranches bien fournies : l'écart est réel, le décalage baisse
+    samples = [Sample(outside=o, room=TARGET + e, target=TARGET) for o, e, n in bins for _ in range(100)]
+    assert compute_proposal(samples, 0.4, 19, s).new_shift < 19
+
+
 def test_decision_settled():
     hour = 3600
     steady = [(h * hour + m * 600, 0.6 + (m % 2) * 0.05) for h in range(8) for m in range(3)]

@@ -33,6 +33,31 @@ def effective_error(rooms: list[RoomReading]) -> tuple[float, str] | None:
     return worst.error, worst.entity_id
 
 
+CATCH_UP_STEP = 0.5  # K : hausse de consigne d'une pièce qui ouvre une phase de rattrapage
+
+
+def catch_up_since(
+    seen: tuple[float, float | None] | None, target: float, current: float, now: float, settle_seconds: float
+) -> float | None:
+    """Début du rattrapage en cours d'une pièce dont la consigne vient de monter, sinon None.
+
+    Juste après une hausse de consigne (planning : 17 → 19,5 °C), la pièce est sous sa consigne quelle
+    que soit la courbe : son écart ne dit rien du réglage. Le rattrapage finit quand la pièce atteint
+    sa consigne, quand la consigne redescend, ou après le délai de stabilisation (au-delà, c'est bien
+    la chaudière qui n'y arrive pas). `seen` = (consigne précédente, début du rattrapage).
+    """
+    since = None
+    if seen is not None:
+        previous, since = seen
+        if target >= previous + CATCH_UP_STEP:
+            since = now
+        elif target < previous:
+            since = None
+    if since is not None and (current >= target or now - since >= settle_seconds):
+        since = None
+    return since
+
+
 # ------------------------------------------------------------------ cycles brûleur
 
 

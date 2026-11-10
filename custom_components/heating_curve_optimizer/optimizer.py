@@ -74,6 +74,7 @@ from .analysis import (
     BurnerStats,
     RoomReading,
     burner_stats,
+    catch_up_since,
     effective_error,
     DIVERGENCE_K,
     DIVERGENCE_MINUTES,
@@ -175,6 +176,7 @@ class HeatingCurveOptimizer:
         self._listeners: list[Callable[[], None]] = []
         self._own_contexts: list[str] = []
         self._electric_held: dict[str, bool] = {}
+        self._room_seen: dict[str, tuple[float, float | None]] = {}  # pièce → (consigne, début du rattrapage)
 
     # ---------------------------------------------------------- cycle de vie
 
@@ -423,6 +425,10 @@ class HeatingCurveOptimizer:
         elif ref is not None or not since:
             self.data["room_diverging"] = None
 
+        if self.room_faulty:
+            day = dt_util.now().date().isoformat()
+            if day not in (days := self.data.setdefault("room_fault_days", [])):
+                self.data["room_fault_days"] = (days + [day])[-30:]
         if self.room_faulty and not was_faulty:
             starts_at = [t for t in (watch["since"] if self.data.get("room_frozen") else None, since) if t]
             start = min(starts_at) if starts_at else now
@@ -641,6 +647,12 @@ class HeatingCurveOptimizer:
             cur, tgt = _float(a.get("current_temperature")), _float(a.get("temperature"))
             if cur is None or tgt is None:
                 continue
+            since = catch_up_since(
+                self._room_seen.get(entity_id), tgt, cur, time.time(), float(self.cfg[CONF_SETTLE_MINUTES]) * 60
+            )
+            self._room_seen[entity_id] = (tgt, since)
+            if since is not None:
+                continue  # consigne de la pièce tout juste remontée : rattrapage, pièce non représentative
             readings.append(RoomReading(entity_id, cur - tgt, a.get("hvac_action") == "heating"))
         return effective_error(readings)
 
@@ -1868,6 +1880,8 @@ class HeatingCurveOptimizer:
         start, gas, outside = rows[-2]  # veille complète
         if gas is None or outside is None:
             return {}
+        if dt_util.as_local(dt_util.utc_from_timestamp(_ts(start))).date().isoformat() in self.data.get("room_fault_days", []):
+            return {}  # sonde d'ambiance défaillante ce jour-là : surchauffe déjà signalée, cause connue
         kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
         indoor = float(self.pilot.temps["comfort"])
         expected = expected_gas_kwh(model["loss_w_per_k"], model["base_kwh_per_day"], indoor, outside)
