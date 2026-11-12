@@ -60,6 +60,10 @@ def test_overconsumption():
     assert overconsumption(12.5, 3.8) is None  # relevé du 09/11/2026, « +231 % »
     assert overconsumption(20, 4) is not None
     assert overconsumption(37.6, 26.7) is not None
+    # dispersion du modèle : un jour à moins de 2 écarts-types de la prévision n'est pas anormal
+    assert overconsumption(17.4, 6.7, rmse_kwh=7.0) is None  # relevé du 10/11/2026
+    assert overconsumption(37.6, 26.7, rmse_kwh=7.0) is None
+    assert overconsumption(45, 26.7, rmse_kwh=7.0) is not None
 
 
 def test_pressure_trend_and_leak():

@@ -108,6 +108,9 @@ from .pilot import HeatingPilot
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+# Jours de chauffe pour se fier au bilan thermique d'une saison : en début de saison (19 à 22 jours
+# en novembre 2026), la droite bougeait d'un jour à l'autre ; en dessous, la saison précédente sert.
+MODEL_MIN_DAYS = 30
 SHIFT_RETRY_SECONDS = 300
 HEATING_FILTER_VERSION = 2
 DHW_RISE_K = 1.0  # le ballon monte pendant que la pompe tourne : c'est l'eau chaude, pas le chauffage
@@ -1871,7 +1874,7 @@ class HeatingCurveOptimizer:
         diag = await self.async_diagnostics()
         model = next(
             (t for _, t in sorted(diag["thermal"].items(), reverse=True)
-             if t.get("loss_w_per_k") and t.get("r2", 0) >= 0.5 and t.get("days", 0) >= 15),
+             if t.get("loss_w_per_k") and t.get("r2", 0) >= 0.5 and t.get("days", 0) >= MODEL_MIN_DAYS),
             None,
         )
         rows = await self.async_daily_stats(2)
@@ -1885,7 +1888,9 @@ class HeatingCurveOptimizer:
         kwh_per_m3 = float(self.cfg[CONF_KWH_PER_M3])
         indoor = float(self.pilot.temps["comfort"])
         expected = expected_gas_kwh(model["loss_w_per_k"], model["base_kwh_per_day"], indoor, outside)
-        excess = overconsumption(gas * kwh_per_m3, expected, float(self.cfg[CONF_OVERCONSUMPTION_RATIO]))
+        excess = overconsumption(
+            gas * kwh_per_m3, expected, float(self.cfg[CONF_OVERCONSUMPTION_RATIO]), rmse_kwh=model.get("rmse_kwh")
+        )
         if excess is None:
             return {}
         self.data["overconsumption_log"] = (self.data["overconsumption_log"] + [

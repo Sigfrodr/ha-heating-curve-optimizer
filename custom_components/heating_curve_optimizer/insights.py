@@ -89,15 +89,21 @@ def expected_gas_kwh(loss_w_per_k: float, base_kwh_per_day: float, indoor: float
     return max(0.0, a * (indoor - outside) + base_kwh_per_day)
 
 
-def overconsumption(actual_kwh: float, expected_kwh: float, ratio: float = 1.3, min_excess: float = 5.0) -> float | None:
+def overconsumption(actual_kwh: float, expected_kwh: float, ratio: float = 1.3, min_excess: float = 5.0,
+                    rmse_kwh: float | None = None) -> float | None:
     """Surconsommation en % si le jour dépasse nettement la prévision, sinon None.
 
     Près du seuil de chauffe, la prévision linéaire tombe vers zéro et le rapport ne veut plus rien
     dire (09/11/2026 : 12,5 kWh pour 3,8 prévus à 13 °C, « +231 % ») : sous 2 × min_excess prévus,
     il faut un écart absolu double.
+
+    Le modèle a sa propre dispersion (±7 kWh/j sur les 22 premiers jours de chauffe 2026) : un jour
+    n'est anormal que s'il sort de 2 écarts-types (règle empirique).
     """
     if expected_kwh < 2 * min_excess:
         min_excess *= 2
+    if rmse_kwh:
+        min_excess = max(min_excess, 2 * rmse_kwh)
     if expected_kwh <= 0 or actual_kwh < expected_kwh * ratio or actual_kwh - expected_kwh < min_excess:
         return None
     return (actual_kwh / expected_kwh - 1) * 100

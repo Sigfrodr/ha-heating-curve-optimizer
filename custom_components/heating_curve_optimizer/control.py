@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -296,6 +297,7 @@ class ThermalBalance:
     r2: float
     days: int
     internal_gains_w: float | None = None  # apports de l'électricité consommée dans la maison
+    rmse_kwh: float | None = None  # dispersion des jours autour de la droite (kWh de gaz par jour)
 
 
 ELEC_TO_HEAT = 0.9  # part de l'électricité consommée qui finit en chaleur dans la maison
@@ -331,10 +333,13 @@ def thermal_balance(
     ss_tot = sum((y - my) ** 2 for _, y in pts)
     ss_res = sum((y - (a * x + b)) ** 2 for x, y in pts)
     r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+    rmse = math.sqrt(ss_res / (n - 2))
     if use_elec:
         gains = sum(e for _, _, e in with_elec) / len(with_elec) * ELEC_TO_HEAT
-        return ThermalBalance(a * 1000 / 24, (b - gains) / efficiency, r2, n, round(gains * 1000 / 24))
-    return ThermalBalance(a * efficiency * 1000 / 24, b, r2, n)
+        return ThermalBalance(
+            a * 1000 / 24, (b - gains) / efficiency, r2, n, round(gains * 1000 / 24), round(rmse / efficiency, 1)
+        )
+    return ThermalBalance(a * efficiency * 1000 / 24, b, r2, n, rmse_kwh=round(rmse, 1))
 
 
 # ------------------------------------------------------------------ équilibrage

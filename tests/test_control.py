@@ -151,6 +151,9 @@ def test_cost_and_thermal_balance():
     tb = thermal_balance(days)
     assert abs(tb.loss_w_per_k - 200) < 0.5 and abs(tb.base_kwh_per_day - 3) < 1e-6 and tb.r2 > 0.999
     assert thermal_balance(days[:5]) is None
+    # jours dispersés de ±4 kWh autour de la droite : la dispersion est rendue avec le modèle
+    noisy = [(kwh + (4 if i % 2 else -4), t) for i, (kwh, t) in enumerate(days)]
+    assert tb.rmse_kwh == 0 and 3.5 < thermal_balance(noisy).rmse_kwh < 4.6
 
 
 def test_balance_rooms():
